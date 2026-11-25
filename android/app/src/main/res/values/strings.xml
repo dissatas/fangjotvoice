@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ฟังจด</string>
+    <string name="title_activity_main">ฟังจด</string>
+    <string name="package_name">com.fangjot.app</string>
+    <string name="custom_url_scheme">com.fangjot.app</string>
+</resources>

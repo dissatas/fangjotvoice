@@ -1,0 +1,13 @@
+{
+	"appId": "com.fangjot.app",
+	"appName": "ฟังจด",
+	"webDir": "www",
+	"android": {
+		"adjustMarginsForEdgeToEdge": "auto"
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	}
+}

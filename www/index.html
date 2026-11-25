@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#00463c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ฟังจด บันทึกประชุม</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<script src="native.js"></script>
+<style>
+/* VOICE: calm, exact meeting secretary — a tool that opens mid-meeting.
+   IDEA: a minutes pad clipped to a live recorder; the green band is the device on the table.
+   PICTURE: the big record button with breathing rings + the talk-time strip showing who spoke how much.
+   COLOUR and TYPE: deep green field, lime-white ink, coral only for "recording"; Inter Tight / Inter with IBM Plex Sans Thai.
+   LAYOUT: green band (title, speakers, recorder) → tabs → transcript / summary / export; stacks under 720px. */
+:root{color-scheme:light dark;--g:#00463c;--g2:#0b5a4d;--lime:#e6f5c8;--coral:#ff6f59;
+--bg:light-dark(#ffffff,#07120e);--ink:light-dark(#0d1f1a,#e6efe9);--mute:light-dark(#5a6b65,#93a79f);
+--line:light-dark(#e2e9e5,#1b2c25);--card:light-dark(#f4f8f6,#0e1b16);--field:light-dark(#ffffff,#0a1612)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html{scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,"IBM Plex Sans Thai",system-ui,sans-serif;overflow-x:clip}
+h1,h2,h3,.tt{font-family:"Inter Tight","IBM Plex Sans Thai",system-ui,sans-serif;line-height:1.1}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #9fe0c4;outline-offset:2px}
+[hidden]{display:none!important}
+.wrap{max-width:1240px;margin:0 auto;padding:0 max(4vw,16px)}
+
+/* green band */
+.band{background:var(--g);color:var(--lime);padding-top:env(safe-area-inset-top)}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 0}
+.brand{display:flex;align-items:center;gap:10px;font:700 20px/1 "Inter Tight","IBM Plex Sans Thai",sans-serif;margin-right:auto}
+.brand svg{width:30px;height:30px}
+.save{font-size:13px;opacity:.8;white-space:nowrap}
+.gbtn{min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(230,245,200,.35);background:transparent;color:var(--lime);font-weight:600;font-size:15px;white-space:nowrap}
+.gbtn:hover{background:rgba(230,245,200,.1)}
+.gbtn.solid{background:var(--lime);color:var(--g);border-color:var(--lime)}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:clamp(20px,4vw,56px);padding:18px 0 34px;align-items:center}
+#title{width:100%;background:transparent;border:0;border-bottom:2px solid transparent;color:#fff;font:700 clamp(24px,3.2vw,38px)/1.15 "Inter Tight","IBM Plex Sans Thai",sans-serif;padding:4px 0}
+#title:focus{outline:none;border-bottom-color:var(--lime)}
+.meta{font-size:15px;opacity:.85;margin:8px 0 22px}
+.lbl{font-size:13px;opacity:.75;margin:0 0 8px}
+.spk{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-radius:999px;border:1.5px solid rgba(230,245,200,.3);background:rgba(255,255,255,.06);color:var(--lime);font-weight:600;font-size:15px}
+.chip i{width:12px;height:12px;border-radius:50%;flex:none}
+.chip.on{background:var(--lime);color:var(--g);border-color:var(--lime)}
+.chip kbd{font:600 11px Inter;opacity:.6}
+.chip .ed{display:inline-grid;place-items:center;width:26px;height:26px;margin-right:-8px;border-radius:50%;border:0;background:rgba(0,70,60,.12);color:inherit}
+.chip input{width:9em;border:0;background:transparent;font-weight:600;color:var(--g)}
+.chip input:focus{outline:none}
+.chip.add{border-style:dashed}
+.talk{display:flex;height:14px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.1)}
+.talk span{height:100%;transition:width .4s}
+.talkl{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;margin-top:8px;opacity:.9}
+.talkl b{font-weight:600}
+
+.recbox{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
+.recbtn{position:relative;width:148px;height:148px;border-radius:50%;border:0;background:#fff;display:grid;place-items:center;box-shadow:0 18px 40px rgba(0,0,0,.28),inset 0 -6px 0 rgba(0,0,0,.08)}
+.recbtn .dot{width:54px;height:54px;border-radius:50%;background:var(--coral);transition:.25s}
+.recbtn.on{background:var(--coral)}
+.recbtn.on .dot{width:44px;height:44px;border-radius:10px;background:#fff}
+.recbtn::before,.recbtn::after{content:"";position:absolute;inset:-10px;border-radius:50%;border:2px solid var(--coral);opacity:0}
+.recbtn.on::before{animation:ring 1.8s ease-out infinite}
+.recbtn.on::after{animation:ring 1.8s ease-out .9s infinite}
+@keyframes ring{from{transform:scale(.9);opacity:.8}to{transform:scale(1.35);opacity:0}}
+@media(prefers-reduced-motion:reduce){.recbtn.on::before,.recbtn.on::after{animation:none;opacity:.6}}
+.timer{font:700 40px/1 "Inter Tight",sans-serif;font-variant-numeric:tabular-nums;color:#fff}
+.rstat{font-size:14px;opacity:.85;max-width:280px;min-height:1.5em}
+.opts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;font-size:14px}
+.opts select{min-height:40px;border-radius:10px;border:1px solid rgba(230,245,200,.35);background:var(--g2);color:var(--lime);padding:0 10px;font-size:16px}
+.opts label{display:flex;align-items:center;gap:6px}
+
+/* tabs */
+.tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabs .wrap{display:flex;gap:4px;overflow-x:auto}
+.tab{flex:none;min-height:52px;padding:0 18px;border:0;background:none;font-weight:600;color:var(--mute);border-bottom:3px solid transparent}
+.tab.on{color:var(--ink);border-bottom-color:var(--g)}
+:root[data-theme=dark] .tab.on{border-bottom-color:#5ccf9f}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]) .tab.on{border-bottom-color:#5ccf9f}}
+main{padding:24px 0 120px}
+.panel h2{font-size:24px;margin:0 0 6px}
+.sub{color:var(--mute);margin:0 0 18px;font-size:15px}
+
+/* transcript */
+.seg{display:grid;grid-template-columns:62px 170px minmax(0,1fr) auto;gap:6px 14px;padding:14px 0;border-bottom:1px solid var(--line);align-items:start}
+.seg time{font-variant-numeric:tabular-nums;color:var(--mute);font-size:14px;padding-top:9px;white-space:nowrap}
+.sp{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:0;font-weight:600;font-size:15px;justify-self:start;max-width:100%;text-align:left}
+.sp i{width:10px;height:10px;border-radius:50%;flex:none}
+.txt{padding:7px 8px;border-radius:8px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px}
+.txt:focus{background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+.tags{display:flex;gap:6px;align-items:center;padding-top:6px}
+.lg{font:600 11px Inter;padding:3px 7px;border-radius:6px;background:var(--card);color:var(--mute);white-space:nowrap}
+.x{width:36px;height:36px;border-radius:8px;border:0;background:none;color:var(--mute);font-size:20px;line-height:1}
+.x:hover{background:var(--card);color:var(--coral)}
+.seg.partial .txt{color:var(--mute);font-style:italic}
+.empty{padding:48px 20px;text-align:center;color:var(--mute);border:1.5px dashed var(--line);border-radius:16px}
+.compose{position:sticky;bottom:0;display:flex;gap:10px;padding:14px 0;background:var(--bg);border-top:1px solid var(--line);margin-top:16px}
+.compose textarea{flex:1;min-height:48px;max-height:140px;resize:vertical;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:11px 14px;font-size:16px}
+.btn{min-height:44px;padding:0 18px;border-radius:12px;border:1px solid var(--line);background:var(--field);font-weight:600;font-size:15px;white-space:nowrap;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{border-color:var(--mute)}
+.btn.pri{background:var(--g);color:var(--lime);border-color:var(--g)}
+.btn[disabled]{opacity:.5;cursor:progress}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* summary */
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;margin-top:18px}.grid2 .wide{grid-column:1/-1}
+.box{border:1px solid var(--line);border-radius:16px;padding:20px;background:var(--bg)}
+.box h3{font-size:18px;margin:0 0 12px}
+.ta{width:100%;min-height:150px;border:1px solid var(--line);border-radius:12px;background:var(--field);padding:12px 14px;font-size:16px;line-height:1.65;resize:vertical}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:13px;color:var(--mute);font-weight:600;padding:6px 6px;border-bottom:1px solid var(--line)}
+td{padding:4px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+td input{width:100%;min-height:42px;border:1px solid transparent;border-radius:8px;background:transparent;padding:0 8px;font-size:16px}
+td input:focus{border-color:var(--line);background:var(--field);outline:none}
+.note{font-size:13px;color:var(--mute);margin-top:10px}
+
+/* export */
+.seg3{display:inline-flex;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.seg3 button{min-height:44px;padding:0 16px;border:0;background:none;font-weight:600;font-size:15px}
+.seg3 button.on{background:var(--g);color:var(--lime)}
+.fmt{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 8px}
+.fmt button{min-height:96px;border-radius:14px;border:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;padding:14px;text-align:left}
+.fmt b{font:700 20px "Inter Tight",sans-serif}
+.fmt span{font-size:13px;color:var(--mute)}
+.fmt button:hover{border-color:var(--g)}
+.share{display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:20px;align-items:start}
+.field{display:block;margin-bottom:12px}
+.field span{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+.field input{width:100%;min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:0 14px;font-size:16px}
+.qr{width:220px;min-height:220px;border-radius:14px;background:#fff;display:grid;place-items:center;padding:10px}
+.qr img,.qr canvas{width:200px!important;height:200px!important}
+.qr p{color:#6b7a75;font-size:13px;text-align:center;margin:0}
+audio{width:100%;margin-top:8px}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(400px,92vw);background:var(--bg);z-index:21;display:flex;flex-direction:column;box-shadow:10px 0 40px rgba(0,0,0,.25)}
+.drawer header{padding:18px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.drawer header h2{margin:0 auto 0 0;font-size:20px}
+.drawer input{margin:12px 18px 6px;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:0 14px;font-size:16px}
+.mlist{overflow:auto;padding:6px 10px 20px}
+.mi{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:12px;border-radius:12px;cursor:pointer}
+.mi:hover,.mi.on{background:var(--card)}
+.mi b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mi small{color:var(--mute);grid-column:1}
+.mi .x{grid-row:1/3;grid-column:2;align-self:center;width:auto;padding:0 10px;font-size:13px}
+
+/* share view */
+.sv{max-width:820px;margin:0 auto;padding:32px max(4vw,16px) 80px}
+.doc h1{font-size:clamp(28px,4vw,40px);margin:0 0 8px}
+.doc h2{font-size:20px;margin:28px 0 10px;padding-top:16px;border-top:1px solid var(--line)}
+.doc .meta{color:var(--mute);opacity:1}
+.doc .seg{grid-template-columns:62px 150px minmax(0,1fr)}
+.doc p.li{margin:6px 0;padding-left:1.1em;text-indent:-1.1em}
+
+.dlg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(480px,92vw);background:var(--bg);border-radius:18px;padding:22px;z-index:25;box-shadow:0 20px 60px rgba(0,0,0,.35)}.dlg h2{margin:0 0 14px;font-size:22px}#setScrim{z-index:24}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0d1f1a;color:#fff;padding:12px 18px;border-radius:12px;font-size:15px;z-index:40;max-width:min(92vw,520px);box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.busy{position:fixed;inset:0;background:var(--bg);z-index:30;display:grid;place-items:center;font-weight:600}
+.pdfdoc{position:fixed;left:0;top:0;width:720px;background:#fff;color:#111;z-index:-1;font:15px/1.75 "IBM Plex Sans Thai",Inter,sans-serif;padding:4px}
+.pdfdoc h1{font:700 28px/1.2 "IBM Plex Sans Thai",sans-serif;margin:0 0 6px}
+.pdfdoc h2{font:700 19px/1.3 "IBM Plex Sans Thai",sans-serif;margin:22px 0 8px;color:#00463c}
+.pdfdoc .meta{color:#555;margin:0 0 10px}
+.pdfdoc p{margin:0 0 8px}
+.pdfdoc .seg{display:block;border:0;padding:0;margin:0 0 10px}
+.pdfdoc .seg span{color:#777;font-size:13px}
+
+@media(max-width:860px){.hero{grid-template-columns:minmax(0,1fr)}.recbox{order:-1}.grid2,.share{grid-template-columns:minmax(0,1fr)}.fmt{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.seg{grid-template-columns:auto minmax(0,1fr) auto}.seg time{grid-column:1;grid-row:1}.seg .sp{grid-column:2;grid-row:1}.seg .tags{grid-column:3;grid-row:1;padding-top:2px}.seg .txt{grid-column:1/-1}
+.doc .seg{grid-template-columns:auto minmax(0,1fr)}.stack thead{display:none}.stack tr{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:8px 0;border-bottom:1px solid var(--line)}.stack td{display:block;border:0;padding:2px 0;grid-column:1}.stack td::before{content:attr(data-l);display:block;font-size:12px;color:var(--mute);padding-left:8px}.stack td:last-child{grid-column:2;grid-row:1/4;align-self:center}.stack td:last-child::before{display:none}.recbtn{width:120px;height:120px}.save{display:none}.tabs{position:static}}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="band">
+ <div class="wrap">
+  <div class="top">
+   <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#e6f5c8"/><g fill="#00463c"><rect x="7" y="13" width="3" height="6" rx="1.5"/><rect x="12" y="9" width="3" height="14" rx="1.5"/><rect x="17" y="6" width="3" height="20" rx="1.5"/><rect x="22" y="11" width="3" height="10" rx="1.5"/></g></svg>ฟังจด</div>
+   <span class="save" id="saveState">พร้อมบันทึก</span>
+   <button class="gbtn" id="installBtn" hidden>ติดตั้งเป็นแอป</button>
+   <button class="gbtn" id="setBtn" hidden>ตั้งค่า</button>
+   <button class="gbtn" id="listBtn">การประชุมทั้งหมด</button>
+   <button class="gbtn solid" id="newBtn">+ ประชุมใหม่</button>
+  </div>
+  <div class="hero">
+   <div>
+    <input id="title" aria-label="ชื่อการประชุม" autocomplete="off">
+    <p class="meta" id="meta"></p>
+    <p class="lbl">ใครกำลังพูด — แตะชื่อ หรือกดเลข 1–8 บนคีย์บอร์ด</p>
+    <div class="spk" id="spk"></div>
+    <p class="lbl">สัดส่วนเวลาพูด</p>
+    <div class="talk" id="talk"></div>
+    <div class="talkl" id="talkl"></div>
+   </div>
+   <div class="recbox">
+    <button class="recbtn" id="recBtn" aria-label="เริ่มบันทึก"><span class="dot"></span></button>
+    <div class="timer" id="timer">0:00</div>
+    <div class="rstat" id="rstat">แตะเพื่อเริ่มบันทึก แล้ววางอุปกรณ์ไว้กลางโต๊ะ</div>
+    <div class="opts" id="sOpts" hidden>
+     <select id="lang" aria-label="ภาษาหลัก"><option value="th-TH">ไทย (รองรับคำทับศัพท์)</option><option value="en-US">English</option></select>
+     <label><input type="checkbox" id="keepAudio" checked> เก็บไฟล์เสียง</label>
+    </div>
+   </div>
+  </div>
+ </div>
+</div>
+
+<nav class="tabs"><div class="wrap" role="tablist">
+ <button class="tab on" data-tab="tr">ถอดเสียง</button>
+ <button class="tab" data-tab="su">สรุปและงาน</button>
+ <button class="tab" data-tab="ex">ส่งออกและแชร์</button>
+</div></nav>
+
+<main class="wrap">
+ <section class="panel" id="p-tr">
+  <div id="segs"></div>
+  <div class="compose">
+   <textarea id="manual" rows="1" placeholder="พิมพ์บันทึกเพิ่มเอง (Enter เพื่อเพิ่ม)"></textarea>
+   <button class="btn pri" id="addManual">เพิ่ม</button>
+  </div>
+ </section>
+
+ <section class="panel" id="p-su" hidden>
+  <h2>สรุปการประชุม</h2>
+  <p class="sub">ใคร ทำอะไร ส่งเมื่อไหร่ — แก้ไขได้ทุกช่อง</p>
+  <div class="row">
+   <button class="btn pri" id="aiSum">สรุปด้วย AI</button>
+   <button class="btn" id="aiSpk">ให้ AI แยกผู้พูดจากบริบท</button>
+   <button class="btn" id="copyTasks">คัดลอกรายการงานไปส่งทีม</button>
+  </div>
+  <p class="note" id="aiNote"></p>
+  <div class="grid2">
+   <div class="box wide">
+    <h3>รายการงานที่ต้องทำต่อ</h3>
+    <table class="stack"><thead><tr><th style="width:22%">ใคร</th><th>ทำอะไร</th><th style="width:20%">ส่งเมื่อไหร่</th><th style="width:40px"></th></tr></thead><tbody id="acts"></tbody></table>
+    <button class="btn" id="addAct" style="margin-top:12px">+ เพิ่มงาน</button>
+   </div>
+   <div class="box">
+    <h3>ภาพรวม</h3>
+    <textarea class="ta" id="sumText" placeholder="ยังไม่มีสรุป — กด “สรุปด้วย AI” หรือพิมพ์เอง"></textarea>
+   </div>
+   <div class="box">
+    <h3>มติ / ข้อตกลง</h3>
+    <textarea class="ta" id="decText" placeholder="หนึ่งบรรทัดต่อหนึ่งข้อ"></textarea>
+   </div>
+  </div>
+ </section>
+
+ <section class="panel" id="p-ex" hidden>
+  <h2>ส่งออกไฟล์</h2>
+  <p class="sub">เลือกเนื้อหา แล้วเลือกรูปแบบไฟล์</p>
+  <div class="seg3" id="scope"><button data-s="all" class="on">ทั้งหมด</button><button data-s="summary">เฉพาะสรุป</button><button data-s="script">เฉพาะสคริปต์</button></div>
+  <div class="fmt">
+   <button data-f="pdf"><b>PDF</b><span>พร้อมพิมพ์</span></button>
+   <button data-f="docx"><b>Word</b><span>.docx แก้ต่อได้</span></button>
+   <button data-f="md"><b>Markdown</b><span>.md สำหรับ wiki</span></button>
+   <button data-f="txt"><b>ข้อความ</b><span>.txt</span></button>
+  </div>
+  <div class="row"><button class="btn" id="copyAll">คัดลอกเป็นข้อความ</button></div>
+  <div id="audioBox" hidden><h3 style="margin:22px 0 4px">ไฟล์เสียงรอบล่าสุด</h3><audio id="aud" controls></audio><button class="btn" id="dlAudio" style="margin-top:8px">ดาวน์โหลดไฟล์เสียง</button></div>
+
+  <h2 style="margin-top:40px">แชร์ผ่านลิงก์หรือ QR Code</h2>
+  <p class="sub" id="shareSub">ตั้งรหัสผ่านเพื่อเข้ารหัสเนื้อหาก่อนส่งออกจากเครื่อง (AES-256) — ผู้เปิดต้องรู้รหัสจึงจะอ่านได้</p>
+  <div class="row" id="nShare" hidden><button class="btn pri" id="nShareTxt">แชร์สรุปผ่าน LINE / อีเมล / แอปอื่น</button><button class="btn" id="nSharePdf">แชร์เป็นไฟล์ PDF</button></div>
+  <div class="share" id="shareBox">
+   <div>
+    <label class="field"><span>รหัสผ่าน (เว้นว่าง = ไม่เข้ารหัส)</span><input id="sharePw" type="password" autocomplete="new-password"></label>
+    <div class="row"><button class="btn pri" id="mkShare">สร้างลิงก์แชร์</button><span class="note" style="margin:0">ใช้ขอบเขตเนื้อหาเดียวกับที่เลือกด้านบน</span></div>
+    <div id="shareOut" hidden style="margin-top:16px">
+     <label class="field"><span>ลิงก์</span><input id="shareLink" readonly></label>
+     <div class="row"><button class="btn" id="copyLink">คัดลอกลิงก์</button><button class="btn" id="dlQr">ดาวน์โหลด QR</button></div>
+     <p class="note">ผู้เปิดต้องลงชื่อเข้าใช้ Claude และได้รับสิทธิ์เปิดแอปนี้ (แชร์แอปให้ทั้งองค์กรได้จากปุ่ม Share ของ artifact) — ส่งรหัสผ่านแยกช่องทางกับลิงก์</p>
+    </div>
+   </div>
+   <div class="qr" id="qr"><p>QR Code จะขึ้นที่นี่</p></div>
+  </div>
+
+  <h2 style="margin-top:40px" id="clH">ใช้ต่อกับ Claude</h2>
+  <p class="sub" id="clP">บันทึกประชุมเก็บในฐานข้อมูลของแอปนี้ เจ้าของแอปพิมพ์ในแชต Claude ได้เลย เช่น “ดึงประชุมล่าสุดจากแอปฟังจด แล้วร่างอีเมลแจ้งงานให้ทีม”</p>
+  <button class="btn" id="copyPrompt">คัดลอกคำสั่งตัวอย่าง</button>
+ </section>
+</main>
+</div>
+
+<div id="shareView" class="sv" hidden></div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden>
+ <header><h2>การประชุมทั้งหมด</h2><button class="btn" id="closeDrawer">ปิด</button></header>
+ <input id="q" placeholder="ค้นหาชื่อหรือข้อความ" aria-label="ค้นหา">
+ <div class="mlist" id="mlist"></div>
+</aside>
+<div class="scrim" id="setScrim" hidden></div>
+<div class="dlg" id="setDlg" role="dialog" aria-label="ตั้งค่า" hidden>
+ <h2>ตั้งค่า</h2>
+ <label class="field"><span>Claude API key (สำหรับสรุปด้วย AI)</span><input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
+ <label class="field"><span>รุ่นโมเดล</span><input id="apiModel" autocomplete="off"></label>
+ <p class="note">สร้าง key ได้ที่ console.anthropic.com — key เก็บไว้ในเครื่องนี้เท่านั้น และส่งตรงไปที่ api.anthropic.com ตอนกดสรุป ค่าใช้จ่ายคิดตามการใช้งานของบัญชี API นั้น</p>
+ <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="setCancel">ยกเลิก</button><button class="btn pri" id="setSave">บันทึก</button></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<div class="busy" id="busy" hidden>กำลังสร้างไฟล์…</div>
+
+<script>
+{
+const APP_URL='';
+const N=window.Native||{},IS_NATIVE=!!N.isNative;
+const IS_ART=!IS_NATIVE&&!!(window.claude&&window.claude.use);
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const COLORS=['#2fbf8f','#ff8a6b','#6f9bff','#e7b53c','#b07cf0','#3cc6e0','#f07cb2','#9ccf4a'];
+const rid=(n=10)=>{const a='abcdefghijkmnpqrstuvwxyz23456789';let s='';for(const x of crypto.getRandomValues(new Uint8Array(n)))s+=a[x%a.length];return s};
+const pad=n=>String(n).padStart(2,'0');
+const fmtT=s=>{s=Math.max(0,Math.floor(s||0));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+':'+pad(m):m)+':'+pad(x)};
+const fmtDur=s=>{const m=Math.round((s||0)/60);return m<1?'ไม่ถึง 1 นาที':m<60?m+' นาที':Math.floor(m/60)+' ชม. '+(m%60)+' นาที'};
+const fmtDate=ts=>new Date(ts).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'});
+const langOf=t=>{const th=(t.match(/[฀-๿]/g)||[]).length,en=(t.match(/[A-Za-z]/g)||[]).length;return th&&en?'TH+EN':en?'EN':'TH'};
+const spName=(m,i)=>(m.speakers[i]&&m.speakers[i].name)||('ผู้พูด '+(i+1));
+const safeName=t=>(String(t).replace(/[\\/:*?"<>|#%]+/g,' ').trim().slice(0,60)||'meeting');
+
+let caps={},uid=null,useDb=false,meetings=[],cur=null,activeSp=0,recording=false,recT0=0,timerI=0,partial='',rec=null,media=null,aChunks=[],audioBlob=null,saveT=0,scope='all',editingSp=-1;
+let bootDone,bootP=new Promise(r=>bootDone=r);
+
+function newMeeting(){return{id:rid(12),title:'ประชุม '+new Date().toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}),created:Date.now(),updated:Date.now(),dur:0,speakers:[{name:'ผู้พูด 1'},{name:'ผู้พูด 2'}],segs:[],summary:{text:'',decisions:[],actions:[]},_loaded:true}}
+function sampleMeeting(){
+ const m=newMeeting();m.sample=true;m.title='ตัวอย่าง: ประชุมวางแผนเปิดตัวระบบ HR ใหม่';m.dur=754;
+ m.speakers=[{name:'คุณเจมส์'},{name:'คุณมิว'},{name:'คุณต้น'}];
+ const L=[[4,0,'โอเคครับ เริ่มเลยนะครับ วันนี้เราจะคุยเรื่อง timeline การ go-live ระบบ HR ตัวใหม่'],[19,1,'ฝั่ง data migration ตอนนี้ย้ายข้อมูลพนักงานไปได้ประมาณแปดสิบเปอร์เซ็นต์แล้วค่ะ ยังเหลือ payroll history'],[41,2,'เรื่อง SSO ผมทดสอบกับ Azure AD ผ่านแล้วครับ แต่ต้องรอ security review อีกรอบ'],[66,0,'ถ้าอย่างนั้นเราเลื่อน go-live เป็นวันที่ 15 ธันวาได้ไหมครับ เผื่อเวลาให้ UAT'],[88,1,'ได้ค่ะ มิวจะเตรียม test script สำหรับ UAT ให้เสร็จภายในศุกร์นี้'],[109,2,'ผมจะส่ง security review request ให้ทีม IT Security ภายในวันพรุ่งนี้ครับ'],[131,0,'ดีครับ สรุปว่า go-live 15 ธันวา แล้วนัดประชุม follow-up อีกทีวันพุธหน้า']];
+ m.segs=L.map(([t,sp,text])=>({id:rid(6),t,te:t+12,sp,text,lang:langOf(text)}));
+ m.summary={text:'ที่ประชุมทบทวนความพร้อมก่อน go-live ระบบ HR ใหม่ การย้ายข้อมูลพนักงานเสร็จราว 80% เหลือ payroll history ส่วน SSO กับ Azure AD ทดสอบผ่านแล้วแต่รอ security review จึงตกลงเลื่อน go-live เป็น 15 ธันวาคม เพื่อเผื่อเวลาทำ UAT',decisions:['เลื่อน go-live เป็นวันที่ 15 ธันวาคม','ประชุม follow-up วันพุธหน้า'],actions:[{who:'คุณมิว',what:'เตรียม test script สำหรับ UAT',due:'ศุกร์นี้'},{who:'คุณต้น',what:'ส่ง security review request ให้ทีม IT Security',due:'พรุ่งนี้'},{who:'คุณเจมส์',what:'นัดประชุม follow-up',due:'พุธหน้า'}]};
+ return m}
+
+/* ---------- storage ---------- */
+const LS='fangjot.v1',CH=120;
+function lsRead(){try{return JSON.parse(localStorage.getItem(LS)||'[]').map(m=>({...m,_loaded:true}))}catch(e){return[]}}
+function lsWrite(){try{localStorage.setItem(LS,JSON.stringify(meetings.filter(m=>!m.sample).map(({_ck,_loaded,_prev,...m})=>m)))}catch(e){}}
+const mcol=()=>caps.db.collection('rec/'+uid+'/m');
+async function dbList(){const s=await mcol().get();return s.docs.map(d=>{const m={...d.data()};m._loaded=false;m._prev=m.chunks||0;m.segs=[];return m})}
+async function dbLoad(m){if(m._loaded)return;let segs=[];for(let i=0;i<(m.chunks||0);i++){const d=await mcol().doc(m.id).collection('c').doc(String(i)).get();if(d.exists)segs=segs.concat(d.data().segs||[])}m.segs=segs;m._loaded=true}
+async function dbSave(m){
+ const n=Math.ceil(m.segs.length/CH);m._ck=m._ck||{};
+ for(let i=0;i<n;i++){const part=m.segs.slice(i*CH,(i+1)*CH),k=JSON.stringify(part);if(m._ck[i]===k)continue;await mcol().doc(m.id).collection('c').doc(String(i)).set({segs:part});m._ck[i]=k}
+ for(let i=n;i<(m._prev||0);i++){await mcol().doc(m.id).collection('c').doc(String(i)).delete();delete m._ck[i]}
+ m._prev=n;
+ await mcol().doc(m.id).set({id:m.id,title:m.title,created:m.created,updated:m.updated,dur:m.dur,speakers:m.speakers,summary:m.summary,segCount:m.segs.length,chunks:n,preview:m.segs.slice(0,3).map(s=>s.text).join(' ').slice(0,200)})}
+async function dbDel(m){for(let i=0;i<(m._prev||m.chunks||0);i++)await mcol().doc(m.id).collection('c').doc(String(i)).delete();await mcol().doc(m.id).delete()}
+let chain=Promise.resolve();
+function dirty(){if(!cur)return;if(cur.sample){cur.sample=false;cur.title=cur.title.replace(/^ตัวอย่าง:\s*/,'')}cur.updated=Date.now();setSave('กำลังบันทึก…');clearTimeout(saveT);const m=cur;saveT=setTimeout(()=>persist(m),1200)}
+function persist(m){chain=chain.then(async()=>{
+ if(useDb){try{await dbSave(m);setSave('บันทึกแล้ว · ซิงก์ทุกอุปกรณ์')}catch(e){setSave('บันทึกไม่สำเร็จ');toast(e&&e.code==='quota_exceeded'?'พื้นที่จัดเก็บเต็ม ลบการประชุมเก่าบางรายการ':'บันทึกขึ้นคลาวด์ไม่สำเร็จ จะเก็บไว้ในเครื่องนี้แทน');lsWrite()}}
+ else{lsWrite();setSave(IS_ART?'บันทึกในเครื่องนี้':'บันทึกในเครื่องนี้แล้ว')}
+})}
+function setSave(t){$('#saveState').textContent=t}
+
+/* ---------- render ---------- */
+function renderHead(){
+ const m=cur;if(document.activeElement!==$('#title'))$('#title').value=m.title;
+ $('#meta').textContent=fmtDate(m.created)+' · '+fmtDur(m.dur)+' · '+m.segs.length+' ช่วงบทสนทนา'+(m.sample?' · ข้อมูลตัวอย่าง':'');
+ $('#spk').innerHTML=m.speakers.map((s,i)=>i===editingSp?`<span class="chip on"><i style="background:${COLORS[i%8]}"></i><input id="spIn" value="${esc(s.name)}" aria-label="ชื่อผู้พูด"></span>`:
+  `<button class="chip${i===activeSp?' on':''}" data-sp="${i}"><i style="background:${COLORS[i%8]}"></i>${esc(s.name)} <kbd>${i+1}</kbd>${i===activeSp?`<span class="ed" data-ed="${i}" role="button" aria-label="แก้ชื่อ"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>`:''}</button>`).join('')+(m.speakers.length<8?'<button class="chip add" id="addSp">+ เพิ่มผู้พูด</button>':'');
+ const tot=m.speakers.map((_,i)=>m.segs.filter(s=>s.sp===i).reduce((a,s)=>a+s.text.length,0)),sum=tot.reduce((a,b)=>a+b,0);
+ $('#talk').innerHTML=sum?tot.map((v,i)=>`<span style="width:${v/sum*100}%;background:${COLORS[i%8]}"></span>`).join(''):'';
+ $('#talkl').innerHTML=sum?m.speakers.map((s,i)=>tot[i]?`<span><b>${esc(s.name)}</b> ${Math.round(tot[i]/sum*100)}%</span>`:'').join(''):'<span>ยังไม่มีเสียงพูด</span>';
+ const si=$('#spIn');if(si){si.focus();si.select()}
+}
+function segRow(s,i){const c=COLORS[s.sp%8];return`<div class="seg" data-i="${i}"><time>${fmtT(s.t)}</time><button class="sp" data-c="${i}" style="background:color-mix(in srgb,${c} 18%,transparent)" title="แตะเพื่อเปลี่ยนผู้พูด"><i style="background:${c}"></i>${esc(spName(cur,s.sp))}</button><div class="txt" contenteditable="true" spellcheck="false" data-t="${i}">${esc(s.text)}</div><div class="tags"><span class="lg">${s.lang}</span><button class="x" data-d="${i}" aria-label="ลบ">×</button></div></div>`}
+function renderSegs(){
+ const box=$('#segs'),atEnd=window.innerHeight+window.scrollY>=document.body.scrollHeight-120;
+ box.innerHTML=cur.segs.length||partial?cur.segs.map(segRow).join('')+`<div class="seg partial" id="partial"${partial?'':' hidden'}><time>${fmtT(liveT())}</time><span class="sp" style="background:color-mix(in srgb,${COLORS[activeSp%8]} 18%,transparent)"><i style="background:${COLORS[activeSp%8]}"></i>${esc(spName(cur,activeSp))}</span><div class="txt"></div><div></div></div>`
+  :`<div class="empty"><h3 style="margin:0 0 6px;color:var(--ink)">ยังไม่มีบทสนทนา</h3>กดปุ่มบันทึกสีขาวด้านบน แล้ววางอุปกรณ์ไว้กลางห้องประชุม<br>ข้อความไทย/อังกฤษจะขึ้นที่นี่ทันที พร้อมชื่อผู้พูดที่เลือกไว้</div>`;
+ const p=$('#partial .txt');if(p)p.textContent=partial;
+ if(recording&&atEnd)window.scrollTo(0,document.body.scrollHeight);
+}
+function renderPartial(){const r=$('#partial');if(!r){renderSegs();return}r.hidden=!partial;$('.txt',r).textContent=partial;$('time',r).textContent=fmtT(liveT())}
+function renderSummary(){const s=cur.summary;$('#sumText').value=s.text||'';$('#decText').value=(s.decisions||[]).join('\n');
+ $('#acts').innerHTML=(s.actions||[]).map((a,i)=>`<tr data-a="${i}"><td data-l="ใคร"><input data-k="who" value="${esc(a.who)}" placeholder="ชื่อ"></td><td data-l="ทำอะไร"><input data-k="what" value="${esc(a.what)}" placeholder="งาน"></td><td data-l="ส่งเมื่อไหร่"><input data-k="due" value="${esc(a.due)}" placeholder="กำหนดส่ง"></td><td><button class="x" data-ad="${i}" aria-label="ลบงาน">×</button></td></tr>`).join('')||'<tr><td colspan="4" class="note" style="padding:14px 6px">ยังไม่มีงาน</td></tr>'}
+function renderList(){const q=$('#q').value.trim().toLowerCase();
+ const L=[...meetings].sort((a,b)=>b.updated-a.updated).filter(m=>!q||(m.title+' '+(m.preview||'')+' '+(m.segs||[]).map(s=>s.text).join(' ')).toLowerCase().includes(q));
+ $('#mlist').innerHTML=L.map(m=>`<div class="mi${m===cur?' on':''}" data-m="${esc(m.id)}"><b>${esc(m.title)}</b><small>${fmtDate(m.created)} · ${fmtDur(m.dur)}</small><button class="x" data-del="${esc(m.id)}">ลบ</button></div>`).join('')||'<p class="note" style="padding:12px">ไม่พบการประชุม</p>'}
+function renderAll(){renderHead();renderSegs();renderSummary();renderAudio()}
+function renderAudio(){$('#audioBox').hidden=!audioBlob;if(audioBlob)$('#aud').src=URL.createObjectURL(audioBlob)}
+let toastT=0;function toast(t){const e=$('#toast');e.textContent=t;e.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>e.hidden=true,4200)}
+
+/* ---------- recording ---------- */
+const liveT=()=>cur.dur+(recording?(Date.now()-recT0)/1000:0);
+function setRecUI(on){$('#recBtn').classList.toggle('on',on);$('#recBtn').setAttribute('aria-label',on?'หยุดบันทึก':'เริ่มบันทึก');$('#rstat').textContent=on?'กำลังฟังและถอดเสียง… แตะชื่อเมื่อคนพูดเปลี่ยน':'แตะเพื่อเริ่มบันทึก แล้ววางอุปกรณ์ไว้กลางโต๊ะ'}
+function begin(){if(recording)return;recording=true;recT0=Date.now();setRecUI(true);clearInterval(timerI);timerI=setInterval(()=>{$('#timer').textContent=fmtT(liveT())},500)}
+function finish(){if(!recording)return;cur.dur+=(Date.now()-recT0)/1000;recording=false;clearInterval(timerI);partial='';setRecUI(false);$('#timer').textContent=fmtT(cur.dur);renderSegs();renderHead();dirty()}
+function addSeg(text,manual){text=String(text||'').trim();if(!text)return;const t=manual?liveT():liveT();const last=cur.segs[cur.segs.length-1];
+ if(!manual&&last&&last.sp===activeSp&&t-(last.te||last.t)<6&&last.text.length<500){last.text+=(/[A-Za-z0-9]$/.test(last.text)||/^[A-Za-z0-9]/.test(text)?' ':' ')+text;last.te=t;last.lang=langOf(last.text)}
+ else cur.segs.push({id:rid(6),t,te:t,sp:activeSp,text,lang:langOf(text)});
+ renderSegs();renderHead();dirty()}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+/* Android: SpeechRecognizer ends after each pause, so commit what it heard and restart while recording */
+let nPend='',nWatch=0,nBusy=false,nStopAt=0;
+const lsGet=k=>{try{return localStorage.getItem(k)||''}catch(e){return''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+function nCommit(){if(nPend){const t=nPend;nPend='';partial='';addSeg(t)}}
+async function nOnce(){if(!recording||nBusy)return;nBusy=true;try{await N.SpeechRecognition.start({language:$('#lang').value,partialResults:true,popup:false,maxResults:1})}catch(e){}finally{nBusy=false}}
+async function nStart(){const S=N.SpeechRecognition;
+ try{const a=await S.available();if(!a.available){toast('เครื่องนี้ไม่มีบริการรู้จำเสียง — ติดตั้ง/อัปเดตแอป Google แล้วลองใหม่');return}
+  let pm=await S.checkPermissions();if(pm.speechRecognition!=='granted')pm=await S.requestPermissions();
+  if(pm.speechRecognition!=='granted'){toast('ต้องอนุญาตให้ใช้ไมโครโฟนก่อน (ตั้งค่า > แอป > ฟังจด > สิทธิ์)');return}}catch(e){toast('เปิดไมโครโฟนไม่สำเร็จ');return}
+ begin();try{N.KeepAwake.keepAwake()}catch(e){}nStopAt=0;nOnce();
+ clearInterval(nWatch);nWatch=setInterval(async()=>{if(!recording||nBusy)return;try{const r=await S.isListening();if(!r.listening&&Date.now()-nStopAt>900){nCommit();nOnce()}}catch(e){}},1000)}
+function nStop(){clearInterval(nWatch);nCommit();finish();try{N.SpeechRecognition.stop()}catch(e){}try{N.KeepAwake.allowSleep()}catch(e){}setTimeout(nCommit,900)}
+function startRec(){
+ if(IS_NATIVE)return nStart();
+ if(IS_ART){if(!caps.dict){toast(caps._ready?'ไมค์ถอดเสียงสดใช้ได้ใน Chrome / Edge (คอมพิวเตอร์และ Android) และแอป Claude บนเดสก์ท็อป — ตอนนี้พิมพ์บันทึกด้านล่างได้':'กำลังเตรียมไมโครโฟน ลองอีกครั้งในอีกครู่');return}
+  caps.dict.start().catch(e=>{finish();toast(e&&e.code==='not_granted'?'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน':'เริ่มฟังไม่สำเร็จ ลองแตะอีกครั้ง')});begin();return}
+ if(!SR){toast('เบราว์เซอร์นี้ไม่รองรับการถอดเสียงสด ใช้ Chrome, Edge หรือ Safari');return}
+ rec=new SR();rec.lang=$('#lang').value;rec.continuous=true;rec.interimResults=true;
+ rec.onresult=e=>{let p='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal){partial='';addSeg(r[0].transcript)}else p+=r[0].transcript}partial=p;renderPartial()};
+ rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน');stopRec()}};
+ rec.onend=()=>{if(recording){try{rec.start()}catch(x){}}};
+ try{rec.start()}catch(x){}
+ begin();
+ if($('#keepAudio').checked&&navigator.mediaDevices&&window.MediaRecorder){navigator.mediaDevices.getUserMedia({audio:true}).then(st=>{media=new MediaRecorder(st);aChunks=[];media.ondataavailable=e=>{if(e.data.size)aChunks.push(e.data)};media.onstop=()=>{audioBlob=new Blob(aChunks,{type:media.mimeType||'audio/webm'});st.getTracks().forEach(t=>t.stop());renderAudio()};media.start(1000)}).catch(()=>{})}
+}
+function stopRec(){
+ if(IS_NATIVE)return nStop();
+ if(IS_ART){const d=caps.dict;finish();if(d)d.stop().catch(()=>{});return}
+ finish();try{rec&&rec.stop()}catch(x){}try{media&&media.state!=='inactive'&&media.stop()}catch(x){}
+}
+
+/* ---------- AI ---------- */
+const transcript=m=>m.segs.map(s=>`[${fmtT(s.t)}] ${spName(m,s.sp)}: ${s.text}`).join('\n');
+function pj(t){const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a<0||b<a)throw new Error('json');return JSON.parse(t.slice(a,b+1))}
+function aiErr(e){if(e&&e.code==='api'){toast(/401|auth|x-api-key/i.test(e.message)?'API key ไม่ถูกต้อง — แก้ได้ในหน้าตั้งค่า':'AI: '+e.message);return}if(e&&e.code==='net'){toast('เชื่อมต่ออินเทอร์เน็ตไม่ได้');return}if(e&&e.code==='not_granted'){caps.sample=null;aiAvail();return}toast(e&&e.code==='rate_limited'?'ใช้ AI ถี่เกินไป รอสักครู่แล้วลองใหม่':'AI ตอบไม่สำเร็จ ลองอีกครั้ง')}
+async function busyBtn(b,label,fn){const o=b.textContent;b.disabled=true;b.textContent=label;try{await fn()}finally{b.disabled=false;b.textContent=o}}
+function aiSummary(){if(!caps.sample&&IS_NATIVE)return openSet();if(!caps.sample)return toast('AI สรุปใช้ได้เมื่อเปิดแอปนี้ใน Claude');if(!cur.segs.length)return toast('ยังไม่มีบทสนทนาให้สรุป');
+ const tx=transcript(cur).slice(-90000);
+ busyBtn($('#aiSum'),'กำลังสรุป…',async()=>{try{
+  const r=await caps.sample(`คุณคือเลขานุการบันทึกการประชุมมืออาชีพ อ่านบทถอดเสียงการประชุมด้านล่าง (อาจมีภาษาไทยปนอังกฤษและคำทับศัพท์ และอาจมีคำที่ถอดเสียงผิด ให้ตีความตามบริบท) แล้วตอบเป็น JSON อย่างเดียว ไม่มีข้อความอื่น ตามรูปแบบ:
+{"title":"ชื่อการประชุมสั้นๆ","summary":"สรุป 3-6 ประโยคเป็นภาษาไทย คงศัพท์เทคนิคภาษาอังกฤษไว้","decisions":["มติหรือข้อตกลง"],"actions":[{"who":"ผู้รับผิดชอบ","what":"งานที่ต้องทำ","due":"กำหนดส่ง หรือ \\"\\" ถ้าไม่ได้ระบุ"}]}
+ใช้ชื่อผู้รับผิดชอบตามที่ปรากฏในบท ถ้าไม่มีผู้รับผิดชอบให้ใส่ "ยังไม่ระบุ" ห้ามแต่งข้อมูลที่ไม่มีในบท
+วันที่ประชุม: ${fmtDate(cur.created)}
+บทถอดเสียง:
+${tx}`,{modelTier:'default'});
+  const j=pj(r.text);cur.summary={text:String(j.summary||''),decisions:(j.decisions||[]).map(String),actions:(j.actions||[]).map(a=>({who:String(a.who||''),what:String(a.what||''),due:String(a.due||'')}))};
+  if(j.title&&/^ประชุม \d/.test(cur.title))cur.title=String(j.title).slice(0,120);
+  renderSummary();renderHead();dirty();toast('สรุปเสร็จแล้ว — ตรวจทานและแก้ไขได้')}catch(e){aiErr(e)}})}
+function aiSpeakers(){if(!caps.sample&&IS_NATIVE)return openSet();if(!caps.sample)return toast('ใช้ได้เมื่อเปิดแอปนี้ใน Claude');if(cur.segs.length<2)return toast('ต้องมีบทสนทนาอย่างน้อย 2 ช่วง');
+ const segs=cur.segs.slice(0,400);
+ busyBtn($('#aiSpk'),'กำลังวิเคราะห์…',async()=>{try{
+  const r=await caps.sample(`ด้านล่างคือบทถอดเสียงประชุมที่ผู้พูดอาจถูกระบุผิด แต่ละบรรทัดคือ "ลำดับ|ผู้พูดที่ระบุตอนนี้|ข้อความ"
+ให้วิเคราะห์จากบริบท (การถาม-ตอบ การเรียกชื่อ การรับปากทำงาน สำนวนการพูด) ว่าแต่ละบรรทัดน่าจะเป็นผู้พูดคนไหน ตอบเป็น JSON อย่างเดียว:
+{"names":["ชื่อผู้พูดคนที่ 1","ชื่อคนที่ 2"],"assign":[ดัชนีผู้พูดเริ่มที่ 0 ของแต่ละบรรทัด ตามลำดับ]}
+ใช้ชื่อจริงถ้ามีการเอ่ยถึงในบท ไม่เช่นนั้นคงชื่อเดิม จำนวนผู้พูดไม่เกิน 8 คน assign ต้องมี ${segs.length} ตัว
+${segs.map((s,i)=>i+'|'+spName(cur,s.sp)+'|'+s.text).join('\n')}`,{modelTier:'default'});
+  const j=pj(r.text);const names=(j.names||[]).map(String).slice(0,8),as=j.assign||[];
+  if(!names.length||as.length!==segs.length)throw new Error('shape');
+  cur.speakers=names.map(n=>({name:n}));segs.forEach((s,i)=>{const v=+as[i];if(v>=0&&v<names.length)s.sp=v});
+  if(activeSp>=names.length)activeSp=0;renderAll();dirty();toast('จัดผู้พูดใหม่แล้ว — แตะชื่อในแต่ละบรรทัดเพื่อแก้')}catch(e){aiErr(e)}})}
+function aiAvail(){$('#aiNote').textContent=IS_NATIVE&&!caps.sample?'ใส่ Claude API key ในหน้าตั้งค่าก่อน เพื่อใช้สรุปและแยกผู้พูดด้วย AI':caps.sample?'AI อ่านจากบทถอดเสียง — ตรวจทานก่อนส่งต่อทุกครั้ง':IS_ART?'AI ใช้ไม่ได้ในมุมมองนี้ — สรุปเองได้ในช่องด้านล่าง':'เวอร์ชันติดตั้งเองยังไม่ได้ต่อ AI — เปิดแอปผ่าน Claude เพื่อใช้สรุปอัตโนมัติ หรือพิมพ์สรุปเอง';$('#aiSum').hidden=$('#aiSpk').hidden=!caps.sample&&!IS_NATIVE}
+
+/* ---------- export ---------- */
+function blocks(m,sc){const B=[{t:'h1',x:m.title},{t:'meta',x:fmtDate(m.created)+' · ความยาว '+fmtDur(m.dur)+' · ผู้พูด: '+m.speakers.map(s=>s.name).join(', ')}];
+ const s=m.summary||{};
+ if(sc!=='script'){B.push({t:'h2',x:'สรุปการประชุม'});(s.text||'—').split(/\n+/).forEach(x=>B.push({t:'p',x}));
+  if((s.decisions||[]).length){B.push({t:'h2',x:'มติ / ข้อตกลง'});s.decisions.forEach(x=>B.push({t:'li',x}))}
+  B.push({t:'h2',x:'งานที่ต้องทำต่อ'});(s.actions||[]).length?s.actions.forEach(a=>B.push({t:'li',x:`${a.who||'ยังไม่ระบุ'} — ${a.what}${a.due?' (ส่ง: '+a.due+')':''}`})):B.push({t:'p',x:'—'})}
+ if(sc!=='summary'&&(m.segs||[]).length){B.push({t:'h2',x:'สคริปต์การประชุม'});m.segs.forEach(g=>B.push({t:'seg',w:spName(m,g.sp),time:fmtT(g.t),x:g.text}))}
+ return B}
+const toMd=B=>B.map(b=>b.t==='h1'?'# '+b.x:b.t==='h2'?'\n## '+b.x:b.t==='meta'?'_'+b.x+'_':b.t==='li'?'- '+b.x:b.t==='seg'?`**${b.w}** \`${b.time}\`  \n${b.x}\n`:b.x+'\n').join('\n')+'\n';
+const toTxt=B=>B.map(b=>b.t==='h1'?b.x+'\n'+'='.repeat(20):b.t==='h2'?'\n'+b.x+'\n'+'-'.repeat(20):b.t==='li'?'• '+b.x:b.t==='seg'?`[${b.time}] ${b.w}: ${b.x}`:b.x).join('\n')+'\n';
+const toHtml=B=>B.map(b=>b.t==='h1'?`<h1>${esc(b.x)}</h1>`:b.t==='h2'?`<h2>${esc(b.x)}</h2>`:b.t==='meta'?`<p class="meta">${esc(b.x)}</p>`:b.t==='li'?`<p class="li">• ${esc(b.x)}</p>`:b.t==='seg'?`<p class="seg"><b>${esc(b.w)}</b> <span>${esc(b.time)}</span><br>${esc(b.x)}</p>`:`<p>${esc(b.x)}</p>`).join('');
+const loaded={};function loadScript(u){return loaded[u]||(loaded[u]=new Promise((res,rej)=>{const s=document.createElement('script');s.src=u;s.onload=res;s.onerror=()=>{delete loaded[u];rej(new Error('load'))};document.head.appendChild(s)}))}
+const H2P='lib/html2pdf.bundle.min.js',JSZ='lib/jszip.min.js',QRL='lib/qrcode.min.js';
+async function toDocx(B){await loadScript(JSZ);const xe=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+ const run=(t,o={})=>`<w:r><w:rPr><w:rFonts w:ascii="Tahoma" w:hAnsi="Tahoma" w:cs="Tahoma" w:eastAsia="Tahoma"/>${o.b?'<w:b/><w:bCs/>':''}${o.c?`<w:color w:val="${o.c}"/>`:''}<w:sz w:val="${o.s||21}"/><w:szCs w:val="${o.s||21}"/><w:lang w:bidi="th-TH"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r>`;
+ const p=(runs,sp=120)=>`<w:p><w:pPr><w:spacing w:after="${sp}" w:line="300" w:lineRule="auto"/></w:pPr>${runs}</w:p>`;
+ const body=B.map(b=>b.t==='h1'?p(run(b.x,{b:1,s:36}),160):b.t==='h2'?p(run(b.x,{b:1,s:28,c:'00463C'}),120):b.t==='meta'?p(run(b.x,{s:19,c:'666666'}),240):b.t==='li'?p(run('• '+b.x)):b.t==='seg'?p(run(b.w+'  ',{b:1})+run(b.time,{s:18,c:'888888'})+'<w:r><w:br/></w:r>'+run(b.x),160):p(run(b.x))).join('');
+ const z=new JSZip();
+ z.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+ z.file('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+ z.file('word/document.xml',`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+ return z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}
+async function toPdf(B){await loadScript(H2P);await document.fonts.ready;const el=document.createElement('div');el.className='pdfdoc';el.innerHTML=toHtml(B);document.body.appendChild(el);
+ try{return await window.html2pdf().set({margin:[12,12,14,12],image:{type:'jpeg',quality:.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy'],avoid:['p','h2']}}).from(el).outputPdf('blob')}finally{el.remove()}}
+async function saveFile(name,data){
+ if(IS_NATIVE){try{const blob=data instanceof Blob?data:new Blob([data],{type:'text/plain;charset=utf-8'});const r=await N.Filesystem.writeFile({path:name,data:b64(await blob.arrayBuffer()),directory:N.Directory.Cache});await N.Share.share({title:name,files:[r.uri],dialogTitle:'บันทึกหรือส่งไฟล์'})}catch(e){if(!/cancel/i.test(String(e&&(e.message||e))))toast('ส่งออกไม่สำเร็จ')}return}
+ if(IS_ART){if(!caps.dl){toast('ดาวน์โหลดไม่ได้ในมุมมองนี้ — ใช้ปุ่มคัดลอกแทน');return}
+  try{await caps.dl.save({filename:name,data});toast('บันทึกไฟล์แล้ว')}catch(e){const c=e&&e.code;if(c==='declined')return;toast(c==='host_unavailable'?'แอปนี้บันทึกไฟล์ไม่ได้ ลองเปิดในเบราว์เซอร์หรือคอมพิวเตอร์':c==='rate_limited'?'รอสักครู่แล้วลองใหม่':'บันทึกไฟล์ไม่สำเร็จ')}return}
+ const u=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type:'text/plain;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000)}
+async function exportAs(f,m,sc){const B=blocks(m,sc),n=safeName(m.title)+(sc==='summary'?' - สรุป':sc==='script'?' - สคริปต์':'');
+ if(f==='md')return saveFile(n+'.md',toMd(B));if(f==='txt')return saveFile(n+'.txt',toTxt(B));
+ $('#busy').hidden=false;try{const blob=f==='pdf'?await toPdf(B):await toDocx(B);$('#busy').hidden=true;await saveFile(n+'.'+f,blob)}catch(e){toast('สร้างไฟล์ไม่สำเร็จ ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่')}finally{$('#busy').hidden=true}}
+async function copy(t){try{await navigator.clipboard.writeText(t);toast('คัดลอกแล้ว')}catch(e){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');toast('คัดลอกแล้ว')}catch(x){toast('คัดลอกไม่ได้')}a.remove()}}
+
+/* ---------- share (AES-GCM) ---------- */
+const b64=u=>{let s='';const a=new Uint8Array(u);for(let i=0;i<a.length;i+=8192)s+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function key(pw,salt){const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:200000,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function enc(obj,pw){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(pw,salt),new TextEncoder().encode(JSON.stringify(obj)));return{enc:true,salt:b64(salt),iv:b64(iv),ct:b64(ct)}}
+async function dec(d,pw){const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(d.iv)},await key(pw,unb64(d.salt)),unb64(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
+async function makeShare(){if(!caps.db)return toast('การแชร์ต้องเปิดแอปนี้ใน Claude และลงชื่อเข้าใช้');
+ const m=cur,payload={title:m.title,created:m.created,dur:m.dur,speakers:m.speakers,summary:scope==='script'?{}:m.summary,segs:scope==='summary'?[]:m.segs.map(({t,sp,text})=>({t,sp,text})),scope};
+ const pw=$('#sharePw').value;
+ await busyBtn($('#mkShare'),'กำลังสร้าง…',async()=>{try{
+  const body=pw?await enc(payload,pw):{enc:false,data:payload};body.created=Date.now();
+  if(JSON.stringify(body).length>240000)return toast('การประชุมยาวเกินกว่าจะแชร์ทั้งหมด — เลือก “เฉพาะสรุป” แล้วลองใหม่');
+  const sid=rid(12);await caps.db.doc('shares/'+sid).set(body);
+  const base=APP_URL.startsWith('https://')?APP_URL:location.href.split('#')[0];const link=base+'#s-'+sid;
+  $('#shareOut').hidden=false;$('#shareLink').value=link;
+  try{await loadScript(QRL);const q=$('#qr');q.innerHTML='';new window.QRCode(q,{text:link,width:400,height:400,correctLevel:window.QRCode.CorrectLevel.M})}catch(e){$('#qr').innerHTML='<p>สร้าง QR ไม่ได้ — ใช้ลิงก์แทน</p>'}
+  toast(pw?'สร้างลิงก์แบบเข้ารหัสแล้ว — อย่าลืมส่งรหัสผ่านแยก':'สร้างลิงก์แล้ว')}catch(e){toast(e&&e.code==='invalid_argument'?'บัญชีนี้ไม่มีสิทธิ์สร้างลิงก์แชร์ในแอปนี้':'สร้างลิงก์ไม่สำเร็จ ลองใหม่')}})}
+async function showShare(sid){
+ $('#app').hidden=true;const v=$('#shareView');v.hidden=false;
+ const msg=(h,t)=>{v.innerHTML=`<div class="doc"><h1>${esc(h)}</h1><p class="sub">${esc(t)}</p><p><a class="btn" href="#app">ไปที่แอปฟังจด</a></p></div>`};
+ if(!/^[a-z0-9]{6,20}$/.test(sid))return msg('ลิงก์ไม่ถูกต้อง','ตรวจลิงก์อีกครั้ง');
+ msg('กำลังเปิดบันทึกประชุม…','');await bootP;
+ if(!caps.db)return msg('ต้องลงชื่อเข้าใช้','เปิดลิงก์นี้ในเบราว์เซอร์ที่ลงชื่อเข้าใช้ Claude และได้รับสิทธิ์เปิดแอปนี้');
+ let d;try{const s=await caps.db.doc('shares/'+sid).get();if(!s.exists)return msg('ไม่พบบันทึกนี้','ลิงก์อาจถูกลบหรือหมดอายุ');d=s.data()}catch(e){return msg('เปิดไม่สำเร็จ','ลองรีเฟรชอีกครั้ง')}
+ if(!d.enc)return renderShared(d.data);
+ v.innerHTML=`<div class="doc"><h1>บันทึกประชุมนี้ถูกเข้ารหัส</h1><p class="sub">ใส่รหัสผ่านที่ได้รับจากผู้แชร์</p><form id="pwf" class="row"><input id="pwi" type="password" class="ta" style="min-height:46px;max-width:320px" aria-label="รหัสผ่าน" autocomplete="off"><button class="btn pri">เปิดอ่าน</button></form><p class="note" id="pwe"></p></div>`;
+ $('#pwf').onsubmit=async e=>{e.preventDefault();try{renderShared(await dec(d,$('#pwi').value))}catch(x){$('#pwe').textContent='รหัสผ่านไม่ถูกต้อง'}};$('#pwi').focus()}
+function renderShared(p){const m={title:String(p.title||'บันทึกประชุม'),created:+p.created||Date.now(),dur:+p.dur||0,speakers:(p.speakers||[]).map(s=>({name:String(s&&s.name||'')})),summary:p.summary||{},segs:(p.segs||[]).map(s=>({t:+s.t||0,sp:+s.sp||0,text:String(s.text||'')}))};
+ const sc=p.scope||'all',v=$('#shareView');
+ v.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:24px"><span class="lbl" style="opacity:1;color:var(--mute)">บันทึกประชุมที่แชร์ผ่านฟังจด</span><div class="row"><button class="btn" data-sf="pdf">PDF</button><button class="btn" data-sf="docx">Word</button><button class="btn" data-sf="md">Markdown</button></div></div><div class="doc">${toHtml(blocks(m,sc)).replace(/<p class="seg"><b>/g,'<p class="li"><b>')}</div>`;
+ $$('[data-sf]',v).forEach(b=>b.onclick=()=>exportAs(b.dataset.sf,m,sc))}
+function route(){const h=location.hash;if(h.startsWith('#s-'))showShare(h.slice(3));else{$('#shareView').hidden=true;$('#app').hidden=false}}
+
+/* ---------- meetings ---------- */
+async function openMeeting(m){if(recording)stopRec();if(!m._loaded){setSave('กำลังโหลด…');try{await dbLoad(m)}catch(e){toast('โหลดการประชุมไม่สำเร็จ');return}}cur=m;activeSp=0;editingSp=-1;audioBlob=null;$('#timer').textContent=fmtT(m.dur);$('#shareOut').hidden=true;$('#qr').innerHTML='<p>QR Code จะขึ้นที่นี่</p>';renderAll();setSave(useDb?'ซิงก์ทุกอุปกรณ์':'บันทึกในเครื่องนี้')}
+function drawer(o){$('#drawer').hidden=$('#scrim').hidden=!o;if(o){renderList();$('#q').focus()}}
+let delArm=null;
+
+/* ---------- events ---------- */
+$('#recBtn').onclick=()=>recording?stopRec():startRec();
+$('#title').oninput=e=>{cur.title=e.target.value;dirty()};
+$('#spk').addEventListener('click',e=>{const ed=e.target.closest('[data-ed]');if(ed){editingSp=+ed.dataset.ed;renderHead();return}
+ const c=e.target.closest('[data-sp]');if(c){activeSp=+c.dataset.sp;renderHead();renderPartial();return}
+ if(e.target.closest('#addSp')){cur.speakers.push({name:'ผู้พูด '+(cur.speakers.length+1)});activeSp=cur.speakers.length-1;renderHead();dirty()}});
+$('#spk').addEventListener('keydown',e=>{if(e.target.id==='spIn'&&(e.key==='Enter'||e.key==='Escape')){e.preventDefault();e.target.blur()}});
+$('#spk').addEventListener('focusout',e=>{if(e.target.id!=='spIn')return;const v=e.target.value.trim();if(v&&cur.speakers[editingSp]){cur.speakers[editingSp].name=v.slice(0,40);dirty()}editingSp=-1;renderHead();renderSegs()});
+$('#segs').addEventListener('click',e=>{const c=e.target.closest('[data-c]');if(c){const s=cur.segs[+c.dataset.c];s.sp=(s.sp+1)%cur.speakers.length;renderSegs();renderHead();dirty();return}
+ const d=e.target.closest('[data-d]');if(d){cur.segs.splice(+d.dataset.d,1);renderSegs();renderHead();dirty()}});
+$('#segs').addEventListener('input',e=>{const i=e.target.dataset.t;if(i==null)return;const s=cur.segs[+i];s.text=e.target.textContent;s.lang=langOf(s.text);dirty()});
+$('#segs').addEventListener('focusout',e=>{if(e.target.dataset.t!=null)e.target.parentNode.querySelector('.lg').textContent=cur.segs[+e.target.dataset.t].lang});
+const addM=()=>{const t=$('#manual');addSeg(t.value,true);t.value=''};
+$('#addManual').onclick=addM;$('#manual').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();addM()}};
+document.addEventListener('keydown',e=>{const t=e.target;if(t.isContentEditable||/INPUT|TEXTAREA|SELECT/.test(t.tagName)||e.metaKey||e.ctrlKey||e.altKey)return;const n=+e.key;if(n>=1&&n<=cur.speakers.length){activeSp=n-1;renderHead();renderPartial()}});
+$$('.tab').forEach(b=>b.onclick=()=>{$$('.tab').forEach(x=>x.classList.toggle('on',x===b));$$('.panel').forEach(p=>p.hidden=p.id!=='p-'+b.dataset.tab)});
+$('#sumText').oninput=e=>{cur.summary.text=e.target.value;dirty()};
+$('#decText').oninput=e=>{cur.summary.decisions=e.target.value.split('\n').map(s=>s.trim()).filter(Boolean);dirty()};
+$('#acts').addEventListener('input',e=>{const r=e.target.closest('[data-a]');if(!r)return;cur.summary.actions[+r.dataset.a][e.target.dataset.k]=e.target.value;dirty()});
+$('#acts').addEventListener('click',e=>{const d=e.target.closest('[data-ad]');if(d){cur.summary.actions.splice(+d.dataset.ad,1);renderSummary();dirty()}});
+$('#addAct').onclick=()=>{(cur.summary.actions=cur.summary.actions||[]).push({who:spName(cur,activeSp),what:'',due:''});renderSummary();dirty();const ins=$$('#acts input[data-k=what]');ins[ins.length-1].focus()};
+$('#aiSum').onclick=aiSummary;$('#aiSpk').onclick=aiSpeakers;
+$('#copyTasks').onclick=()=>{const a=cur.summary.actions||[];if(!a.length)return toast('ยังไม่มีรายการงาน');copy(`งานจากการประชุม “${cur.title}” (${fmtDate(cur.created)})\n`+a.map((x,i)=>`${i+1}. ${x.who||'ยังไม่ระบุ'} — ${x.what}${x.due?' (ส่ง: '+x.due+')':''}`).join('\n'))};
+$('#scope').addEventListener('click',e=>{const b=e.target.closest('[data-s]');if(!b)return;scope=b.dataset.s;$$('#scope button').forEach(x=>x.classList.toggle('on',x===b))});
+$$('.fmt [data-f]').forEach(b=>b.onclick=()=>exportAs(b.dataset.f,cur,scope));
+$('#copyAll').onclick=()=>copy(toTxt(blocks(cur,scope)));
+$('#dlAudio').onclick=()=>{if(audioBlob)saveFile(safeName(cur.title)+(/mp4/.test(audioBlob.type)?'.mp4':'.webm'),audioBlob)};
+$('#mkShare').onclick=makeShare;$('#copyLink').onclick=()=>copy($('#shareLink').value);
+$('#dlQr').onclick=()=>{const c=$('#qr canvas');if(!c)return;c.toBlob(b=>b&&saveFile('QR '+safeName(cur.title)+'.png',b))};
+$('#copyPrompt').onclick=()=>copy(`ดึงบันทึกการประชุม “${cur.title}” จากแอปฟังจด (artifact ฐานข้อมูล path rec/…/m) แล้วร่างอีเมลแจ้งรายการงานให้ผู้รับผิดชอบแต่ละคน`);
+$('#newBtn').onclick=()=>{const m=newMeeting();m.sample=false;meetings.push(m);openMeeting(m);drawer(false);$('#title').focus();$('#title').select();dirty()};
+$('#listBtn').onclick=()=>drawer(true);$('#closeDrawer').onclick=$('#scrim').onclick=()=>drawer(false);
+$('#q').oninput=renderList;
+$('#mlist').addEventListener('click',async e=>{const d=e.target.closest('[data-del]');
+ if(d){e.stopPropagation();const id=d.dataset.del;if(delArm!==id){delArm=id;d.textContent='ยืนยันลบ';setTimeout(()=>{if(delArm===id){delArm=null;renderList()}},3000);return}
+  delArm=null;const m=meetings.find(x=>x.id===id);meetings=meetings.filter(x=>x.id!==id);if(useDb&&!m.sample)chain=chain.then(()=>dbDel(m)).catch(()=>toast('ลบบนคลาวด์ไม่สำเร็จ'));else lsWrite();
+  if(m===cur){if(!meetings.length)meetings.push(newMeeting());await openMeeting([...meetings].sort((a,b)=>b.updated-a.updated)[0])}renderList();return}
+ const it=e.target.closest('[data-m]');if(it){const m=meetings.find(x=>x.id===it.dataset.m);if(m){await openMeeting(m);drawer(false)}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidden)drawer(false)});
+$('#lang').onchange=()=>{if(IS_NATIVE&&recording){try{N.SpeechRecognition.stop()}catch(x){}return}if(recording&&rec){try{rec.stop()}catch(x){}}};
+$('#lang').addEventListener('change',()=>{if(rec)rec.lang=$('#lang').value});
+window.addEventListener('hashchange',route);
+window.addEventListener('beforeunload',()=>{if(recording)finish()});
+
+/* ---------- Android: AI key, settings, sharing ---------- */
+function nativeAI(){const k=lsGet('fj.key');caps.sample=k?async prompt=>{let r;
+ try{r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':k,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:lsGet('fj.model')||'claude-sonnet-5-5',max_tokens:8000,messages:[{role:'user',content:prompt}]})})}catch(e){throw{code:'net'}}
+ let j={};try{j=await r.json()}catch(e){}
+ if(!r.ok)throw r.status===429?{code:'rate_limited'}:{code:'api',message:(j.error&&j.error.message)||('HTTP '+r.status)};
+ return{text:(j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('')}}:null;aiAvail()}
+function openSet(){$('#apiKey').value=lsGet('fj.key');$('#apiModel').value=lsGet('fj.model')||'claude-sonnet-5-5';$('#setDlg').hidden=$('#setScrim').hidden=false;$('#apiKey').focus()}
+function closeSet(){$('#setDlg').hidden=$('#setScrim').hidden=true}
+$('#setBtn').onclick=openSet;$('#setCancel').onclick=$('#setScrim').onclick=closeSet;
+$('#setSave').onclick=()=>{lsSet('fj.key',$('#apiKey').value.trim());lsSet('fj.model',$('#apiModel').value.trim()||'claude-sonnet-5-5');nativeAI();closeSet();toast(caps.sample?'บันทึกแล้ว — ใช้สรุปด้วย AI ได้':'ลบ API key แล้ว')};
+$('#nShareTxt').onclick=()=>{N.Share.share({title:cur.title,text:toTxt(blocks(cur,scope==='script'?'all':scope)),dialogTitle:'แชร์บันทึกประชุม'}).catch(()=>{})};
+$('#nSharePdf').onclick=()=>exportAs('pdf',cur,scope);
+
+/* ---------- boot ---------- */
+meetings=lsRead();if(!meetings.length)meetings=[sampleMeeting()];
+cur=[...meetings].sort((a,b)=>b.updated-a.updated)[0];$('#timer').textContent=fmtT(cur.dur);
+renderAll();route();
+if(IS_NATIVE){
+ $('#sOpts').hidden=false;$('#keepAudio').parentNode.hidden=true;$('#setBtn').hidden=false;caps={};nativeAI();
+ $('#shareSub').textContent='ส่งต่อให้ทีมผ่านแอปในเครื่อง เช่น LINE, Gmail, Teams';$('#shareBox').hidden=true;$('#nShare').hidden=false;
+ $('#clP').textContent='กด “คัดลอกเป็นข้อความ” ด้านบน แล้ววางในแอป Claude เพื่อให้ช่วยร่างอีเมล แจกงาน หรือวิเคราะห์ต่อ';$('#copyPrompt').hidden=true;
+ const S=N.SpeechRecognition;
+ S.addListener('partialResults',d=>{const t=d&&d.matches&&d.matches[0];if(t&&recording){nPend=t;partial=t;renderPartial()}});
+ S.addListener('listeningState',d=>{if(d&&d.status==='stopped'){nStopAt=Date.now();setTimeout(()=>{if(Date.now()-nStopAt>=700)nCommit()},750)}});
+ N.App.addListener('backButton',()=>{if(!$('#setDlg').hidden)closeSet();else if(!$('#drawer').hidden)drawer(false);else N.App.minimizeApp()});
+ N.App.addListener('pause',()=>{if(recording)nCommit()});
+ $('#rstat').textContent='แตะเพื่อเริ่มบันทึก แล้ววางเครื่องไว้กลางโต๊ะ (หน้าจอจะเปิดค้างไว้)';
+ bootDone();
+}
+else if(!IS_ART){$('#sOpts').hidden=false;caps={};aiAvail();$('#shareSub').textContent='ลิงก์แชร์และ QR ใช้ได้เมื่อเปิดแอปนี้ผ่าน Claude — เวอร์ชันนี้ใช้ส่งออกไฟล์แทน';$('#shareBox').hidden=true;bootDone();if(!SR)$('#rstat').textContent='เบราว์เซอร์นี้ถอดเสียงสดไม่ได้ — พิมพ์บันทึกด้านล่างได้'}
+else (async()=>{
+ const names=['db','user','dictation','sample','downloads','desktop'];
+ const r=await Promise.all(names.map(n=>window.claude.use(n).catch(()=>null)));
+ caps={db:r[0],user:r[1],dict:r[2],sample:r[3],dl:r[4],desk:r[5],_ready:true};
+ if(caps.dict){caps.dict.onPartial(({text})=>{partial=text||'';renderPartial()});caps.dict.onFinal(({text})=>{partial='';addSeg(text)});
+  caps.dict.onState(({state,reason})=>{if(state==='listening')begin();else if(state==='idle'){finish();if(reason&&!/stopped/.test(reason))toast(reason==='hidden'?'หยุดฟังเพราะสลับไปหน้าอื่น — แตะบันทึกเพื่อฟังต่อ':'หยุดฟังแล้ว — แตะบันทึกเพื่อฟังต่อ')}})}
+ else $('#rstat').textContent='ไมค์สดใช้ได้ใน Chrome/Edge และแอป Claude บนเดสก์ท็อป — ที่นี่พิมพ์บันทึกได้';
+ if(caps.db&&caps.user){try{uid=await caps.user.id()}catch(e){}}
+ if(caps.db&&uid){useDb=true;
+  try{const list=await dbList();const local=meetings.filter(m=>!m.sample);
+   if(list.length){meetings=list.concat(local.filter(l=>!list.some(x=>x.id===l.id)));await openMeeting([...meetings].sort((a,b)=>b.updated-a.updated)[0])}
+   local.forEach(m=>persist(m));setSave('ซิงก์ทุกอุปกรณ์')}catch(e){useDb=false;setSave('บันทึกในเครื่องนี้')}}
+ aiAvail();
+ if(!caps.db){$('#shareSub').textContent='ลงชื่อเข้าใช้ Claude เพื่อสร้างลิงก์แชร์และ QR Code';$('#mkShare').disabled=true}
+ try{if(caps.desk&&caps.desk.install&&await caps.desk.install.state()==='available'){const b=$('#installBtn');b.hidden=false;b.onclick=()=>caps.desk.install.request().catch(()=>{})}}catch(e){}
+ bootDone();
+})();
+}
+</script>
+</body>
+</html>
