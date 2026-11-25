@@ -1,0 +1,8 @@
+node_modules/
+www/lib/
+www/fonts/
+www/native.js
+*.apk
+*.aab
+*.keystore
+.DS_Store
