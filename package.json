@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "ฟังจด — แอปบันทึก ถอดเสียง และสรุปประชุม",
   "scripts": {
-    "build": "./scripts-build.sh",
+    "build": "bash scripts-build.sh",
     "sync": "npm run build && npx cap sync android"
   },
   "keywords": [],
