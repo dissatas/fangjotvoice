@@ -66,6 +66,10 @@ button{cursor:pointer}
 .recbtn.on::after{animation:ring 1.8s ease-out .9s infinite}
 @keyframes ring{from{transform:scale(.9);opacity:.8}to{transform:scale(1.35);opacity:0}}
 @media(prefers-reduced-motion:reduce){.recbtn.on::before,.recbtn.on::after{animation:none;opacity:.6}}
+.recbtn.paused{background:#ffd27a}
+.recbtn.paused .dot{width:44px;height:50px;border-radius:0;background:var(--g);clip-path:polygon(22% 0,100% 50%,22% 100%)}
+.recbtn.paused::before,.recbtn.paused::after{animation:none;opacity:0}
+.gap{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;color:var(--mute);font-size:14px;text-align:center;border-bottom:1px dashed var(--line)}
 .timer{font:700 40px/1 "Inter Tight",sans-serif;font-variant-numeric:tabular-nums;color:#fff}
 .rstat{font-size:14px;opacity:.85;max-width:280px;min-height:1.5em}
 .opts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;font-size:14px}
@@ -196,6 +200,7 @@ audio{width:100%;margin-top:8px}
    <div class="recbox">
     <button class="recbtn" id="recBtn" aria-label="เริ่มบันทึก"><span class="dot"></span></button>
     <div class="timer" id="timer">0:00</div>
+    <button class="gbtn" id="stopBtn" hidden>หยุดบันทึก</button>
     <div class="rstat" id="rstat">แตะเพื่อเริ่มบันทึก แล้ววางอุปกรณ์ไว้กลางโต๊ะ</div>
     <div class="opts" id="sOpts" hidden>
      <select id="lang" aria-label="ภาษาหลัก"><option value="th-TH">ไทย (รองรับคำทับศัพท์)</option><option value="en-US">English</option></select>
@@ -365,7 +370,7 @@ function renderHead(){
  $('#talkl').innerHTML=sum?m.speakers.map((s,i)=>tot[i]?`<span><b>${esc(s.name)}</b> ${Math.round(tot[i]/sum*100)}%</span>`:'').join(''):'<span>ยังไม่มีเสียงพูด</span>';
  const si=$('#spIn');if(si){si.focus();si.select()}
 }
-function segRow(s,i){const c=COLORS[s.sp%8];return`<div class="seg" data-i="${i}"><time>${fmtT(s.t)}</time><button class="sp" data-c="${i}" style="background:color-mix(in srgb,${c} 18%,transparent)" title="แตะเพื่อเปลี่ยนผู้พูด"><i style="background:${c}"></i>${esc(spName(cur,s.sp))}</button><div class="txt" contenteditable="true" spellcheck="false" data-t="${i}">${esc(s.text)}</div><div class="tags"><span class="lg">${s.lang}</span><button class="x" data-d="${i}" aria-label="ลบ">×</button></div></div>`}
+function segRow(s,i){if(s.note)return`<div class="gap" data-i="${i}"><span>${fmtT(s.t)} · ${esc(s.text)}</span><button class="x" data-d="${i}" aria-label="ลบหมายเหตุ">×</button></div>`;const c=COLORS[s.sp%8];return`<div class="seg" data-i="${i}"><time>${fmtT(s.t)}</time><button class="sp" data-c="${i}" style="background:color-mix(in srgb,${c} 18%,transparent)" title="แตะเพื่อเปลี่ยนผู้พูด"><i style="background:${c}"></i>${esc(spName(cur,s.sp))}</button><div class="txt" contenteditable="true" spellcheck="false" data-t="${i}">${esc(s.text)}</div><div class="tags"><span class="lg">${s.lang}</span><button class="x" data-d="${i}" aria-label="ลบ">×</button></div></div>`}
 function renderSegs(){
  const box=$('#segs'),atEnd=window.innerHeight+window.scrollY>=document.body.scrollHeight-120;
  box.innerHTML=cur.segs.length||partial?cur.segs.map(segRow).join('')+`<div class="seg partial" id="partial"${partial?'':' hidden'}><time>${fmtT(liveT())}</time><span class="sp" style="background:color-mix(in srgb,${COLORS[activeSp%8]} 18%,transparent)"><i style="background:${COLORS[activeSp%8]}"></i>${esc(spName(cur,activeSp))}</span><div class="txt"></div><div></div></div>`
@@ -385,26 +390,62 @@ let toastT=0;function toast(t){const e=$('#toast');e.textContent=t;e.hidden=fals
 
 /* ---------- recording ---------- */
 const liveT=()=>cur.dur+(recording?(Date.now()-recT0)/1000:0);
-function setRecUI(on){$('#recBtn').classList.toggle('on',on);$('#recBtn').setAttribute('aria-label',on?'หยุดบันทึก':'เริ่มบันทึก');$('#rstat').textContent=on?'กำลังฟังและถอดเสียง… แตะชื่อเมื่อคนพูดเปลี่ยน':'แตะเพื่อเริ่มบันทึก แล้ววางอุปกรณ์ไว้กลางโต๊ะ'}
-function begin(){if(recording)return;recording=true;recT0=Date.now();setRecUI(true);clearInterval(timerI);timerI=setInterval(()=>{$('#timer').textContent=fmtT(liveT())},500)}
-function finish(){if(!recording)return;cur.dur+=(Date.now()-recT0)/1000;recording=false;clearInterval(timerI);partial='';setRecUI(false);$('#timer').textContent=fmtT(cur.dur);renderSegs();renderHead();dirty()}
-function addSeg(text,manual){text=String(text||'').trim();if(!text)return;const t=manual?liveT():liveT();const last=cur.segs[cur.segs.length-1];
+let micOff=false,gapFrom=0,hiddenAt=0,lastHeard=0,wl=null,srAlive=false;
+async function wakeOn(){if(IS_NATIVE||wl||!navigator.wakeLock)return;try{wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null;updStat()})}catch(e){wl=null}updStat()}
+function wakeOff(){try{wl&&wl.release()}catch(e){}wl=null}
+function updStat(){const b=$('#recBtn');b.classList.toggle('on',recording&&!micOff);b.classList.toggle('paused',recording&&micOff);
+ b.setAttribute('aria-label',!recording?'เริ่มบันทึก':micOff?'ฟังต่อ':'หยุดบันทึก');$('#stopBtn').hidden=!(recording&&micOff);
+ $('#rstat').textContent=!recording?'แตะเพื่อเริ่มบันทึก แล้ววางอุปกรณ์ไว้กลางโต๊ะ':micOff?'หยุดฟังชั่วคราว เพราะแอปถูกสลับไปเบื้องหลังหรือจอดับ — แตะปุ่มเหลืองเพื่อฟังต่อ':(IS_NATIVE?'กำลังฟังและถอดเสียง… ปิดจอหรือสลับแอปได้':'กำลังฟังและถอดเสียง… แตะชื่อเมื่อคนพูดเปลี่ยน')+(wl?' · ล็อกจอไม่ให้ดับแล้ว':'');
+ try{document.title=(recording?(micOff?'⏸ ':'● '):'')+'ฟังจด บันทึกประชุม'}catch(e){}}
+function setRecUI(){updStat()}
+function begin(){if(recording)return;recording=true;micOff=false;recT0=Date.now();lastHeard=Date.now();updStat();wakeOn();clearInterval(timerI);timerI=setInterval(()=>{$('#timer').textContent=fmtT(liveT())},500)}
+function finish(){if(!recording)return;if(micOff)addNote(gapFrom,liveT());cur.dur+=(Date.now()-recT0)/1000;recording=false;micOff=false;clearInterval(timerI);partial='';wakeOff();updStat();$('#timer').textContent=fmtT(cur.dur);renderSegs();renderHead();dirty()}
+function addNote(from,to){if(to-from<3)return;cur.segs.push({id:rid(6),t:from,te:to,sp:-1,note:true,text:`ไม่ได้ฟังช่วง ${fmtT(from)}–${fmtT(to)} (แอปอยู่เบื้องหลังหรือจอดับ)`,lang:''});renderSegs();dirty()}
+function pauseMic(from){if(!recording||micOff)return;micOff=true;gapFrom=from==null?liveT():from;partial='';renderPartial();updStat();
+ if(document.hidden&&!IS_ART){try{if(window.Notification&&Notification.permission==='granted')new Notification('ฟังจดหยุดฟังชั่วคราว',{body:'กลับมาที่แอปเพื่อถอดเสียงต่อ',tag:'fangjot'})}catch(e){}}}
+function resumeMic(){if(!micOff)return;micOff=false;addNote(gapFrom,liveT());lastHeard=Date.now();updStat();wakeOn()}
+function resumeClick(){
+ if(IS_ART){if(!caps.dict)return;caps.dict.start().catch(e=>toast(e&&e.code==='not_granted'?'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน':'ฟังต่อไม่สำเร็จ ลองแตะอีกครั้ง'));return}
+ try{rec&&rec.start()}catch(x){}resumeMic()}
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden){hiddenAt=Date.now();return}
+ if(!recording)return;wakeOn();
+ if(IS_ART){if(micOff)toast('กลับมาแล้ว — แตะปุ่มเหลืองเพื่อฟังต่อ');return}
+ if(!IS_NATIVE&&rec&&!srAlive){try{rec.start()}catch(x){}}});
+function addSeg(text,manual,atMs){text=String(text||'').trim();if(!text)return;lastHeard=Date.now();const t=atMs?Math.max(0,sesBase+(atMs-recT0)/1000):liveT();const last=cur.segs[cur.segs.length-1];
  if(!manual&&last&&last.sp===activeSp&&t-(last.te||last.t)<6&&last.text.length<500){last.text+=(/[A-Za-z0-9]$/.test(last.text)||/^[A-Za-z0-9]/.test(text)?' ':' ')+text;last.te=t;last.lang=langOf(last.text)}
  else cur.segs.push({id:rid(6),t,te:t,sp:activeSp,text,lang:langOf(text)});
  renderSegs();renderHead();dirty()}
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-/* Android: SpeechRecognizer ends after each pause, so commit what it heard and restart while recording */
-let nPend='',nWatch=0,nBusy=false,nStopAt=0;
-const lsGet=k=>{try{return localStorage.getItem(k)||''}catch(e){return''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
-function nCommit(){if(nPend){const t=nPend;nPend='';partial='';addSeg(t)}}
-async function nOnce(){if(!recording||nBusy)return;nBusy=true;try{await N.SpeechRecognition.start({language:$('#lang').value,partialResults:true,popup:false,maxResults:1})}catch(e){}finally{nBusy=false}}
-async function nStart(){const S=N.SpeechRecognition;
- try{const a=await S.available();if(!a.available){toast('เครื่องนี้ไม่มีบริการรู้จำเสียง — ติดตั้ง/อัปเดตแอป Google แล้วลองใหม่');return}
-  let pm=await S.checkPermissions();if(pm.speechRecognition!=='granted')pm=await S.requestPermissions();
-  if(pm.speechRecognition!=='granted'){toast('ต้องอนุญาตให้ใช้ไมโครโฟนก่อน (ตั้งค่า > แอป > ฟังจด > สิทธิ์)');return}}catch(e){toast('เปิดไมโครโฟนไม่สำเร็จ');return}
- begin();try{N.KeepAwake.keepAwake()}catch(e){}nStopAt=0;nOnce();
- clearInterval(nWatch);nWatch=setInterval(async()=>{if(!recording||nBusy)return;try{const r=await S.isListening();if(!r.listening&&Date.now()-nStopAt>900){nCommit();nOnce()}}catch(e){}},1000)}
-function nStop(){clearInterval(nWatch);nCommit();finish();try{N.SpeechRecognition.stop()}catch(e){}try{N.KeepAwake.allowSleep()}catch(e){}setTimeout(nCommit,900)}
+/* Android: a native foreground service (RecorderService) keeps listening with the screen off or
+   another app in front; the page drains recognised phrases from it whenever it runs. */
+let nPoll=0,nStopping=false,sesBase=0;
+const lsGet=k=>{try{return localStorage.getItem(k)||''}catch(e){return''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},lsDel=k=>{try{localStorage.removeItem(k)}catch(e){}};
+async function nDrain(){if(!N.Rec)return;let r;try{r=await N.Rec.drain()}catch(e){return}
+ (r.finals||[]).forEach(f=>addSeg(f.text,false,f.at));
+ if(recording){partial=r.partial||'';renderPartial()}
+ if(r.error==='network')toast('อินเทอร์เน็ตไม่เสถียร — กำลังลองถอดเสียงต่อ');
+ if(r.error==='no_service')toast('เครื่องนี้ไม่มีบริการรู้จำเสียง — ติดตั้ง/อัปเดตแอป Google');
+ if(r.error==='permission')toast('ถูกปิดสิทธิ์ไมโครโฟน');
+ if(recording&&!r.running&&!nStopping){clearInterval(nPoll);finish();lsDel('fj.rec');try{N.KeepAwake.allowSleep()}catch(e){}toast('หยุดบันทึกแล้ว')}}
+function nWatch(){clearInterval(nPoll);nPoll=setInterval(nDrain,800)}
+async function nStart(){
+ let p;try{p=await N.Rec.requestAll()}catch(e){p={}}
+ if(!p.microphone){toast('ต้องอนุญาตให้ใช้ไมโครโฟนก่อน (ตั้งค่า > แอป > ฟังจด > สิทธิ์)');return}
+ try{await N.Rec.start({language:$('#lang').value})}catch(e){toast(e&&e.message||'เริ่มบันทึกไม่สำเร็จ');return}
+ begin();sesBase=cur.dur;lsSet('fj.rec',JSON.stringify({id:cur.id,t0:recT0,base:sesBase}));
+ try{N.KeepAwake.keepAwake()}catch(e){}nWatch();
+ if(!p.notifications)toast('ยังบันทึกเบื้องหลังได้ แต่จะไม่เห็นแถบแจ้งเตือนเพราะปิดสิทธิ์แจ้งเตือนไว้')}
+async function nStop(){nStopping=true;clearInterval(nPoll);try{await N.Rec.stop()}catch(e){}
+ await new Promise(r=>setTimeout(r,400));await nDrain();finish();lsDel('fj.rec');nStopping=false;try{N.KeepAwake.allowSleep()}catch(e){}}
+async function nRestore(){let r;try{r=await N.Rec.drain()}catch(e){return}
+ let st=null;try{st=JSON.parse(lsGet('fj.rec')||'null')}catch(e){}
+ if(!r.running){lsDel('fj.rec');return}
+ const m=st&&meetings.find(x=>x.id===st.id);
+ if(!m){try{await N.Rec.stop()}catch(e){}return}
+ if(m!==cur)await openMeeting(m);
+ recording=true;micOff=false;recT0=st.t0;sesBase=st.base;cur.dur=st.base;updStat();clearInterval(timerI);timerI=setInterval(()=>{$('#timer').textContent=fmtT(liveT())},500);
+ (r.finals||[]).forEach(f=>addSeg(f.text,false,f.at));nWatch();toast('กลับมาที่การบันทึกที่ยังทำงานอยู่')}
 function startRec(){
  if(IS_NATIVE)return nStart();
  if(IS_ART){if(!caps.dict){toast(caps._ready?'ไมค์ถอดเสียงสดใช้ได้ใน Chrome / Edge (คอมพิวเตอร์และ Android) และแอป Claude บนเดสก์ท็อป — ตอนนี้พิมพ์บันทึกด้านล่างได้':'กำลังเตรียมไมโครโฟน ลองอีกครั้งในอีกครู่');return}
@@ -413,7 +454,9 @@ function startRec(){
  rec=new SR();rec.lang=$('#lang').value;rec.continuous=true;rec.interimResults=true;
  rec.onresult=e=>{let p='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal){partial='';addSeg(r[0].transcript)}else p+=r[0].transcript}partial=p;renderPartial()};
  rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน');stopRec()}};
- rec.onend=()=>{if(recording){try{rec.start()}catch(x){}}};
+ rec.onstart=()=>{srAlive=true;if(micOff)resumeMic()};
+ rec.onend=()=>{srAlive=false;if(!recording)return;const at=liveT();setTimeout(()=>{if(recording&&!srAlive)pauseMic(at)},3000);try{rec.start()}catch(x){}};
+ try{if(window.Notification&&Notification.permission==='default')Notification.requestPermission().catch(()=>{})}catch(x){}
  try{rec.start()}catch(x){}
  begin();
  if($('#keepAudio').checked&&navigator.mediaDevices&&window.MediaRecorder){navigator.mediaDevices.getUserMedia({audio:true}).then(st=>{media=new MediaRecorder(st);aChunks=[];media.ondataavailable=e=>{if(e.data.size)aChunks.push(e.data)};media.onstop=()=>{audioBlob=new Blob(aChunks,{type:media.mimeType||'audio/webm'});st.getTracks().forEach(t=>t.stop());renderAudio()};media.start(1000)}).catch(()=>{})}
@@ -425,7 +468,7 @@ function stopRec(){
 }
 
 /* ---------- AI ---------- */
-const transcript=m=>m.segs.map(s=>`[${fmtT(s.t)}] ${spName(m,s.sp)}: ${s.text}`).join('\n');
+const transcript=m=>m.segs.map(s=>s.note?`[${fmtT(s.t)}] (หมายเหตุ) ${s.text}`:`[${fmtT(s.t)}] ${spName(m,s.sp)}: ${s.text}`).join('\n');
 function pj(t){const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a<0||b<a)throw new Error('json');return JSON.parse(t.slice(a,b+1))}
 function aiErr(e){if(e&&e.code==='api'){toast(/401|auth|x-api-key/i.test(e.message)?'API key ไม่ถูกต้อง — แก้ได้ในหน้าตั้งค่า':'AI: '+e.message);return}if(e&&e.code==='net'){toast('เชื่อมต่ออินเทอร์เน็ตไม่ได้');return}if(e&&e.code==='not_granted'){caps.sample=null;aiAvail();return}toast(e&&e.code==='rate_limited'?'ใช้ AI ถี่เกินไป รอสักครู่แล้วลองใหม่':'AI ตอบไม่สำเร็จ ลองอีกครั้ง')}
 async function busyBtn(b,label,fn){const o=b.textContent;b.disabled=true;b.textContent=label;try{await fn()}finally{b.disabled=false;b.textContent=o}}
@@ -442,7 +485,7 @@ ${tx}`,{modelTier:'default'});
   if(j.title&&/^ประชุม \d/.test(cur.title))cur.title=String(j.title).slice(0,120);
   renderSummary();renderHead();dirty();toast('สรุปเสร็จแล้ว — ตรวจทานและแก้ไขได้')}catch(e){aiErr(e)}})}
 function aiSpeakers(){if(!caps.sample&&IS_NATIVE)return openSet();if(!caps.sample)return toast('ใช้ได้เมื่อเปิดแอปนี้ใน Claude');if(cur.segs.length<2)return toast('ต้องมีบทสนทนาอย่างน้อย 2 ช่วง');
- const segs=cur.segs.slice(0,400);
+ const segs=cur.segs.filter(s=>!s.note).slice(0,400);
  busyBtn($('#aiSpk'),'กำลังวิเคราะห์…',async()=>{try{
   const r=await caps.sample(`ด้านล่างคือบทถอดเสียงประชุมที่ผู้พูดอาจถูกระบุผิด แต่ละบรรทัดคือ "ลำดับ|ผู้พูดที่ระบุตอนนี้|ข้อความ"
 ให้วิเคราะห์จากบริบท (การถาม-ตอบ การเรียกชื่อ การรับปากทำงาน สำนวนการพูด) ว่าแต่ละบรรทัดน่าจะเป็นผู้พูดคนไหน ตอบเป็น JSON อย่างเดียว:
@@ -461,7 +504,7 @@ function blocks(m,sc){const B=[{t:'h1',x:m.title},{t:'meta',x:fmtDate(m.created)
  if(sc!=='script'){B.push({t:'h2',x:'สรุปการประชุม'});(s.text||'—').split(/\n+/).forEach(x=>B.push({t:'p',x}));
   if((s.decisions||[]).length){B.push({t:'h2',x:'มติ / ข้อตกลง'});s.decisions.forEach(x=>B.push({t:'li',x}))}
   B.push({t:'h2',x:'งานที่ต้องทำต่อ'});(s.actions||[]).length?s.actions.forEach(a=>B.push({t:'li',x:`${a.who||'ยังไม่ระบุ'} — ${a.what}${a.due?' (ส่ง: '+a.due+')':''}`})):B.push({t:'p',x:'—'})}
- if(sc!=='summary'&&(m.segs||[]).length){B.push({t:'h2',x:'สคริปต์การประชุม'});m.segs.forEach(g=>B.push({t:'seg',w:spName(m,g.sp),time:fmtT(g.t),x:g.text}))}
+ if(sc!=='summary'&&(m.segs||[]).length){B.push({t:'h2',x:'สคริปต์การประชุม'});m.segs.forEach(g=>g.note?B.push({t:'p',x:'['+fmtT(g.t)+'] '+g.text}):B.push({t:'seg',w:spName(m,g.sp),time:fmtT(g.t),x:g.text}))}
  return B}
 const toMd=B=>B.map(b=>b.t==='h1'?'# '+b.x:b.t==='h2'?'\n## '+b.x:b.t==='meta'?'_'+b.x+'_':b.t==='li'?'- '+b.x:b.t==='seg'?`**${b.w}** \`${b.time}\`  \n${b.x}\n`:b.x+'\n').join('\n')+'\n';
 const toTxt=B=>B.map(b=>b.t==='h1'?b.x+'\n'+'='.repeat(20):b.t==='h2'?'\n'+b.x+'\n'+'-'.repeat(20):b.t==='li'?'• '+b.x:b.t==='seg'?`[${b.time}] ${b.w}: ${b.x}`:b.x).join('\n')+'\n';
@@ -496,7 +539,7 @@ async function key(pw,salt){const k=await crypto.subtle.importKey('raw',new Text
 async function enc(obj,pw){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(pw,salt),new TextEncoder().encode(JSON.stringify(obj)));return{enc:true,salt:b64(salt),iv:b64(iv),ct:b64(ct)}}
 async function dec(d,pw){const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(d.iv)},await key(pw,unb64(d.salt)),unb64(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
 async function makeShare(){if(!caps.db)return toast('การแชร์ต้องเปิดแอปนี้ใน Claude และลงชื่อเข้าใช้');
- const m=cur,payload={title:m.title,created:m.created,dur:m.dur,speakers:m.speakers,summary:scope==='script'?{}:m.summary,segs:scope==='summary'?[]:m.segs.map(({t,sp,text})=>({t,sp,text})),scope};
+ const m=cur,payload={title:m.title,created:m.created,dur:m.dur,speakers:m.speakers,summary:scope==='script'?{}:m.summary,segs:scope==='summary'?[]:m.segs.map(({t,sp,text,note})=>note?{t,sp,text,note:true}:{t,sp,text}),scope};
  const pw=$('#sharePw').value;
  await busyBtn($('#mkShare'),'กำลังสร้าง…',async()=>{try{
   const body=pw?await enc(payload,pw):{enc:false,data:payload};body.created=Date.now();
@@ -516,7 +559,7 @@ async function showShare(sid){
  if(!d.enc)return renderShared(d.data);
  v.innerHTML=`<div class="doc"><h1>บันทึกประชุมนี้ถูกเข้ารหัส</h1><p class="sub">ใส่รหัสผ่านที่ได้รับจากผู้แชร์</p><form id="pwf" class="row"><input id="pwi" type="password" class="ta" style="min-height:46px;max-width:320px" aria-label="รหัสผ่าน" autocomplete="off"><button class="btn pri">เปิดอ่าน</button></form><p class="note" id="pwe"></p></div>`;
  $('#pwf').onsubmit=async e=>{e.preventDefault();try{renderShared(await dec(d,$('#pwi').value))}catch(x){$('#pwe').textContent='รหัสผ่านไม่ถูกต้อง'}};$('#pwi').focus()}
-function renderShared(p){const m={title:String(p.title||'บันทึกประชุม'),created:+p.created||Date.now(),dur:+p.dur||0,speakers:(p.speakers||[]).map(s=>({name:String(s&&s.name||'')})),summary:p.summary||{},segs:(p.segs||[]).map(s=>({t:+s.t||0,sp:+s.sp||0,text:String(s.text||'')}))};
+function renderShared(p){const m={title:String(p.title||'บันทึกประชุม'),created:+p.created||Date.now(),dur:+p.dur||0,speakers:(p.speakers||[]).map(s=>({name:String(s&&s.name||'')})),summary:p.summary||{},segs:(p.segs||[]).map(s=>({t:+s.t||0,sp:+s.sp||0,text:String(s.text||''),note:!!s.note}))};
  const sc=p.scope||'all',v=$('#shareView');
  v.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:24px"><span class="lbl" style="opacity:1;color:var(--mute)">บันทึกประชุมที่แชร์ผ่านฟังจด</span><div class="row"><button class="btn" data-sf="pdf">PDF</button><button class="btn" data-sf="docx">Word</button><button class="btn" data-sf="md">Markdown</button></div></div><div class="doc">${toHtml(blocks(m,sc)).replace(/<p class="seg"><b>/g,'<p class="li"><b>')}</div>`;
  $$('[data-sf]',v).forEach(b=>b.onclick=()=>exportAs(b.dataset.sf,m,sc))}
@@ -528,7 +571,8 @@ function drawer(o){$('#drawer').hidden=$('#scrim').hidden=!o;if(o){renderList();
 let delArm=null;
 
 /* ---------- events ---------- */
-$('#recBtn').onclick=()=>recording?stopRec():startRec();
+$('#recBtn').onclick=()=>!recording?startRec():micOff?resumeClick():stopRec();
+$('#stopBtn').onclick=()=>stopRec();
 $('#title').oninput=e=>{cur.title=e.target.value;dirty()};
 $('#spk').addEventListener('click',e=>{const ed=e.target.closest('[data-ed]');if(ed){editingSp=+ed.dataset.ed;renderHead();return}
  const c=e.target.closest('[data-sp]');if(c){activeSp=+c.dataset.sp;renderHead();renderPartial();return}
@@ -566,7 +610,7 @@ $('#mlist').addEventListener('click',async e=>{const d=e.target.closest('[data-d
   if(m===cur){if(!meetings.length)meetings.push(newMeeting());await openMeeting([...meetings].sort((a,b)=>b.updated-a.updated)[0])}renderList();return}
  const it=e.target.closest('[data-m]');if(it){const m=meetings.find(x=>x.id===it.dataset.m);if(m){await openMeeting(m);drawer(false)}}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidden)drawer(false)});
-$('#lang').onchange=()=>{if(IS_NATIVE&&recording){try{N.SpeechRecognition.stop()}catch(x){}return}if(recording&&rec){try{rec.stop()}catch(x){}}};
+$('#lang').onchange=()=>{if(IS_NATIVE&&recording){N.Rec.start({language:$('#lang').value}).catch(()=>{});return}if(recording&&rec){try{rec.stop()}catch(x){}}};
 $('#lang').addEventListener('change',()=>{if(rec)rec.lang=$('#lang').value});
 window.addEventListener('hashchange',route);
 window.addEventListener('beforeunload',()=>{if(recording)finish()});
@@ -592,13 +636,11 @@ if(IS_NATIVE){
  $('#sOpts').hidden=false;$('#keepAudio').parentNode.hidden=true;$('#setBtn').hidden=false;caps={};nativeAI();
  $('#shareSub').textContent='ส่งต่อให้ทีมผ่านแอปในเครื่อง เช่น LINE, Gmail, Teams';$('#shareBox').hidden=true;$('#nShare').hidden=false;
  $('#clP').textContent='กด “คัดลอกเป็นข้อความ” ด้านบน แล้ววางในแอป Claude เพื่อให้ช่วยร่างอีเมล แจกงาน หรือวิเคราะห์ต่อ';$('#copyPrompt').hidden=true;
- const S=N.SpeechRecognition;
- S.addListener('partialResults',d=>{const t=d&&d.matches&&d.matches[0];if(t&&recording){nPend=t;partial=t;renderPartial()}});
- S.addListener('listeningState',d=>{if(d&&d.status==='stopped'){nStopAt=Date.now();setTimeout(()=>{if(Date.now()-nStopAt>=700)nCommit()},750)}});
+ try{N.Rec.addListener('change',()=>{if(recording)nDrain()})}catch(e){}
+ N.App.addListener('resume',()=>{if(recording)nDrain();else nRestore()});
  N.App.addListener('backButton',()=>{if(!$('#setDlg').hidden)closeSet();else if(!$('#drawer').hidden)drawer(false);else N.App.minimizeApp()});
- N.App.addListener('pause',()=>{if(recording)nCommit()});
- $('#rstat').textContent='แตะเพื่อเริ่มบันทึก แล้ววางเครื่องไว้กลางโต๊ะ (หน้าจอจะเปิดค้างไว้)';
- bootDone();
+ $('#rstat').textContent='แตะเพื่อเริ่มบันทึก — ปิดจอหรือสลับแอปได้ แอปยังฟังต่อเบื้องหลัง';
+ nRestore();bootDone();
 }
 else if(!IS_ART){$('#sOpts').hidden=false;caps={};aiAvail();$('#shareSub').textContent='ลิงก์แชร์และ QR ใช้ได้เมื่อเปิดแอปนี้ผ่าน Claude — เวอร์ชันนี้ใช้ส่งออกไฟล์แทน';$('#shareBox').hidden=true;bootDone();if(!SR)$('#rstat').textContent='เบราว์เซอร์นี้ถอดเสียงสดไม่ได้ — พิมพ์บันทึกด้านล่างได้'}
 else (async()=>{
@@ -606,7 +648,7 @@ else (async()=>{
  const r=await Promise.all(names.map(n=>window.claude.use(n).catch(()=>null)));
  caps={db:r[0],user:r[1],dict:r[2],sample:r[3],dl:r[4],desk:r[5],_ready:true};
  if(caps.dict){caps.dict.onPartial(({text})=>{partial=text||'';renderPartial()});caps.dict.onFinal(({text})=>{partial='';addSeg(text)});
-  caps.dict.onState(({state,reason})=>{if(state==='listening')begin();else if(state==='idle'){finish();if(reason&&!/stopped/.test(reason))toast(reason==='hidden'?'หยุดฟังเพราะสลับไปหน้าอื่น — แตะบันทึกเพื่อฟังต่อ':'หยุดฟังแล้ว — แตะบันทึกเพื่อฟังต่อ')}})}
+  caps.dict.onState(({state,reason})=>{if(state==='listening'){if(recording&&micOff)resumeMic();else begin()}else if(state==='idle'){if(!recording)return;if(/stopped/.test(reason||''))finish();else pauseMic()}})}
  else $('#rstat').textContent='ไมค์สดใช้ได้ใน Chrome/Edge และแอป Claude บนเดสก์ท็อป — ที่นี่พิมพ์บันทึกได้';
  if(caps.db&&caps.user){try{uid=await caps.user.id()}catch(e){}}
  if(caps.db&&uid){useDb=true;
